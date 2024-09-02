@@ -92,7 +92,7 @@ public:
 	{
 		ReleaseSRWLockShared(&m_Mutex);
 	}
-
+	
 	FORCEINLINE void WriteUnlock()
 	{
 		ReleaseSRWLockExclusive(&m_Mutex);

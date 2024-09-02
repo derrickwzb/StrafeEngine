@@ -3,6 +3,7 @@
 #include "Windows.h"
 #include "Strafe/Core/Threading/Platform/WindowsPlatformAffinity.h"
 #include "Strafe/Core/Threading/GenericThread.h"
+#include "Strafe/Core/Threading/Runnable.h"
 
 class Runnable;
 class WindowsGenericThread : public GenericThread
@@ -14,6 +15,7 @@ class WindowsGenericThread : public GenericThread
 	{
 		auto* thread = (WindowsGenericThread*)lpParameter;
 		/*return thread->m_ThreadFunction();*/
+		
 	}
 
 	unsigned int GuardedRun();

@@ -12,6 +12,7 @@ unsigned int GenericThread::m_TlsSlot = GenericThread::GetTlsSlot();
 unsigned int GenericThread::GetTlsSlot()
 {
 	//implement 
+	return 0;
 }
 
 GenericThread::GenericThread()
@@ -41,4 +42,13 @@ Runnable* InRunnable
 	GenericThread* NewThread = nullptr;
 
 	NewThread = new WindowsGenericThread();
+
+	if (NewThread)
+	{
+		//setupcreated thread
+	}
+
+	return NewThread;
 }
+
+//todo still have alot of stuff
