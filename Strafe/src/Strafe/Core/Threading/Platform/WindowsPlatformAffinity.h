@@ -34,6 +34,11 @@ enum class ThreadCreateFlags : int8
 	SMTExclusive = (1 << 0),
 };
 
+struct ThreadAffinity
+{
+	unsigned long long m_ThreadAffinityMask = WindowsPlatformAffinity::GetNoAffinityMask();
+	unsigned short int m_ProcessorGroup = 0;
+};
 
 class WindowsPlatformAffinity
 {
