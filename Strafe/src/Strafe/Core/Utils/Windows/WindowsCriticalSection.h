@@ -2,6 +2,8 @@
 
 #include "WindowsApiAbstractions.h"
 
+
+// Critical section interface for windows platform for locking purposes
 class WindowsCriticalSection
 {
 public:
