@@ -14,7 +14,6 @@ public:
 	//Constructor to initialize windows critical section
 	FORCEINLINE WindowsCriticalSection()
 	{
-		//__pragma(warning(supress(28125));
 		__pragma(warning(suppress:28125));
 		InitializeCriticalSection(&m_CriticalSection);
 		SetCriticalSectionSpinCount(&m_CriticalSection, 4000);
