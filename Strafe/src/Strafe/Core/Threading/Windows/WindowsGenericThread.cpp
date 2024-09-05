@@ -1,6 +1,8 @@
 #include "strafepch.h"
 #include "WindowsGenericThread.h"
 #include "Strafe/Core/Utils/Windows/WindowsPlatformProcess.h"
+#include <cstdlib>  // For malloc
+#include <cstdint>  // For uint8_t
 
 
 int WindowsGenericThread::TranslateThreadPriority(ThreadPriority priority)
@@ -38,4 +40,152 @@ unsigned int WindowsGenericThread::GuardedRun()
 	}
 	//might need to do exception handling but see how it goes
 	return ExitCode = Run();
+}
+
+static constexpr  unsigned int CountBits(unsigned long long Bits)
+{
+    // https://en.wikipedia.org/wiki/Hamming_weight
+    Bits -= (Bits >> 1) & 0x5555555555555555ull;
+    Bits = (Bits & 0x3333333333333333ull) + ((Bits >> 2) & 0x3333333333333333ull);
+    Bits = (Bits + (Bits >> 4)) & 0x0f0f0f0f0f0f0f0full;
+    return (Bits * 0x0101010101010101) >> 56;
+}
+
+/** Returns lower value in a generic way */
+template< class T >
+static constexpr  T Min(const T A, const T B)
+{
+    return (A < B) ? A : B;
+}
+
+void QueryCpuInformation(
+    ProcessorGroupDesc& OutGroupDesc,
+    uint32_t& OutNumaNodeCount,
+    uint32_t& OutCoreCount,
+    uint32_t& OutLogicalProcessorCount,
+    bool bForceSingleNumaNode = false)
+{
+    GROUP_AFFINITY FilterGroupAffinity = {};
+    if (bForceSingleNumaNode)
+    {
+        PROCESSOR_NUMBER ProcessorNumber = {};
+        USHORT NodeNumber = 0;
+
+        GetThreadIdealProcessorEx(GetCurrentThread(), &ProcessorNumber);
+        GetNumaProcessorNodeEx(&ProcessorNumber, &NodeNumber);
+        GetNumaNodeProcessorMaskEx(NodeNumber, &FilterGroupAffinity);
+    }
+
+    OutNumaNodeCount = OutCoreCount = OutLogicalProcessorCount = 0;
+    uint8_t* BufferPtr = nullptr;
+    DWORD BufferBytes = 0;
+
+    // Initial call to get the buffer size
+    if (false == GetLogicalProcessorInformationEx(RelationAll, (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)BufferPtr, &BufferBytes))
+    {
+        if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+        {
+            BufferPtr = reinterpret_cast<uint8_t*>(malloc(BufferBytes));
+
+            // Retrieve the processor information
+            if (GetLogicalProcessorInformationEx(RelationAll, reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(BufferPtr), &BufferBytes))
+            {
+                uint8_t* InfoPtr = BufferPtr;
+
+                while (InfoPtr < BufferPtr + BufferBytes)
+                {
+                    PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX ProcessorInfo = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)InfoPtr;
+
+                    if (nullptr == ProcessorInfo)
+                    {
+                        break;
+                    }
+
+                    if (ProcessorInfo->Relationship == RelationProcessorCore)
+                    {
+                        if (bForceSingleNumaNode)
+                        {
+                            for (int GroupIdx = 0; GroupIdx < ProcessorInfo->Processor.GroupCount; ++GroupIdx)
+                            {
+                                if (FilterGroupAffinity.Group == ProcessorInfo->Processor.GroupMask[GroupIdx].Group)
+                                {
+                                    KAFFINITY Intersection = FilterGroupAffinity.Mask & ProcessorInfo->Processor.GroupMask[GroupIdx].Mask;
+
+                                    if (Intersection > 0)
+                                    {
+                                        OutCoreCount++;
+                                        OutLogicalProcessorCount += CountBits(Intersection);
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            OutCoreCount++;
+
+                            for (int GroupIdx = 0; GroupIdx < ProcessorInfo->Processor.GroupCount; ++GroupIdx)
+                            {
+                                OutLogicalProcessorCount += CountBits(ProcessorInfo->Processor.GroupMask[GroupIdx].Mask);
+                            }
+                        }
+                    }
+                    if (ProcessorInfo->Relationship == RelationNumaNode)
+                    {
+                        OutNumaNodeCount++;
+                    }
+                    if (ProcessorInfo->Relationship == RelationGroup)
+                    {
+                        OutGroupDesc.NumProcessorGroups = Min<uint16_t>(ProcessorGroupDesc::MaxNumProcessorGroups, ProcessorInfo->Group.ActiveGroupCount);
+                        for (int GroupIndex = 0; GroupIndex < OutGroupDesc.NumProcessorGroups; GroupIndex++)
+                        {
+                            OutGroupDesc.ThreadAffinities[GroupIndex] = ProcessorInfo->Group.GroupInfo[GroupIndex].ActiveProcessorMask;
+                        }
+                    }
+
+                    InfoPtr += ProcessorInfo->Size;
+                }
+            }
+
+            free(BufferPtr);
+        }
+    }
+}
+
+
+
+ProcessorGroupDesc NumberOfProcessorGroupsInternal()
+{
+	ProcessorGroupDesc GroupDesc;
+	unsigned int NumaNodeCount = 0;
+	unsigned int NumCores = 0;
+	unsigned int LogicalProcessorCount = 0;
+	QueryCpuInformation(GroupDesc, NumaNodeCount, NumCores, LogicalProcessorCount);
+	return GroupDesc;
+}
+
+const ProcessorGroupDesc& GetProcessorGroupDesc()
+{
+	static ProcessorGroupDesc GroupDesc(NumberOfProcessorGroupsInternal());
+	return GroupDesc;
+}
+
+bool WindowsGenericThread::SetThreadAffinityMask(const ThreadAffinity& affinity)
+{
+	const ProcessorGroupDesc& ProcessorGroups = GetProcessorGroupDesc();
+	unsigned int CpuGroupCount = ProcessorGroups.NumProcessorGroups;
+	//check if affinity processor group is lesser than cpu group count
+	//check(affinity.ProcessorGroup < CpuGroupCount);
+
+	GROUP_AFFINITY GroupAffinity = {};
+	GROUP_AFFINITY PreviousGroupAffinity = {};
+	GroupAffinity.Mask = affinity.m_ThreadAffinityMask & ProcessorGroups.ThreadAffinities[affinity.m_ProcessorGroup];
+	GroupAffinity.Group = affinity.m_ProcessorGroup;
+	if (SetThreadGroupAffinity(m_ThreadHandle, &GroupAffinity, &PreviousGroupAffinity) == 0)
+	{
+		DWORD LastError = GetLastError();
+		//todo log error
+		return  false;
+	}
+	m_ThreadAffinityMask = affinity.m_ThreadAffinityMask;
+	return PreviousGroupAffinity.Mask != GroupAffinity.Mask || PreviousGroupAffinity.Group != GroupAffinity.Group;
 }
