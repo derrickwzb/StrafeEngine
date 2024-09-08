@@ -38,10 +38,51 @@ unsigned int WindowsGenericThread::GuardedRun()
 	{
 		::SetThreadAffinityMask(::GetCurrentThread(), (DWORD_PTR)m_ThreadAffinityMask);
 	}
+
+	WindowsPlatformProcess::SetThreadName(STRTOTCHAR(m_ThreadName));
 	//might need to do exception handling but see how it goes
 	return ExitCode = Run();
 }
 
+bool WindowsGenericThread::SetThreadAffinityMask(const ThreadAffinity& affinity)
+{
+	const ProcessorGroupDesc& ProcessorGroups = GetProcessorGroupDesc();
+	unsigned int CpuGroupCount = ProcessorGroups.NumProcessorGroups;
+	//check that affinity processor group is lesser than cpu group count
+
+	GROUP_AFFINITY GroupAffinity = {};
+	GROUP_AFFINITY PreviousGroupAffinity = {};
+	GroupAffinity.Mask = affinity.m_ThreadAffinityMask & ProcessorGroups.ThreadAffinities[affinity.m_ProcessorGroup];
+	GroupAffinity.Group = affinity.m_ProcessorGroup;
+	if (SetThreadGroupAffinity(m_ThreadHandle, &GroupAffinity, &PreviousGroupAffinity) == 0)
+	{
+		DWORD LastError = GetLastError();
+		//todo log error
+		return  false;
+	}
+	m_ThreadAffinityMask = affinity.m_ThreadAffinityMask;
+	return PreviousGroupAffinity.Mask != GroupAffinity.Mask || PreviousGroupAffinity.Group != GroupAffinity.Group;
+}
+
+unsigned int WindowsGenericThread::Run()
+{
+	unsigned int ExitCode = 0;
+    //check runnable valid
+
+    if (m_Runnable->Init() == true)
+    {
+        
+    }
+}
+
+
+
+
+
+
+
+
+//todo move this to appropriate place
 static constexpr  unsigned int CountBits(unsigned long long Bits)
 {
     // https://en.wikipedia.org/wiki/Hamming_weight
