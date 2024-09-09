@@ -76,12 +76,6 @@ unsigned int WindowsGenericThread::Run()
 }
 
 
-
-
-
-
-
-
 //todo move this to appropriate place
 static constexpr  unsigned int CountBits(unsigned long long Bits)
 {

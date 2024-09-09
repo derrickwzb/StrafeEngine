@@ -75,7 +75,7 @@ enum class EventMode{AutoReset, ManualReset};
 class EventRef final
 {
 public:
-	 explicit EventRef(EEventMode Mode = EEventMode::AutoReset);
+	 explicit EventRef(EventMode Mode = EventMode::AutoReset);
 
 	 ~EventRef();
 

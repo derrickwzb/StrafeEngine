@@ -105,6 +105,8 @@ public:
 	static  void SetThreadName(const TCHAR* ThreadName);
 	static  void SetThreadAffinityMask(unsigned int AffinityMask);
 
+	static void Sleep(float Seconds);
+
 };
 
 

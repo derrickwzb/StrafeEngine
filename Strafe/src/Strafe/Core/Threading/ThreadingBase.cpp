@@ -1,5 +1,7 @@
 #include "strafepch.h"
 #include "ThreadingBase.h"
+#include "Strafe/Core/Utils/Windows/WindowsEvent.h"
+#include "Strafe/Core/Utils/LazySingleton.h"
 
 
 
@@ -60,6 +62,23 @@ char(&ArrayCountHelper(const T(&)[N]))[N + 1];
 	ThreadManager
 -----------------------------------------------------------------------------*/
 
+
+bool ThreadManager::IsThreadListSafeToContinue()
+{
+	if (m_IsThreadListDirty)
+	{
+		
+		//log this bitch/*"ThreadManager::Threads was modified during unsafe iteration.Iteration will be aborted."*/
+		return false;
+	}
+
+	return true;
+}
+
+void ThreadManager::OnThreadListModification()
+{
+	m_IsThreadListDirty = true;
+}
 void ThreadManager::AddThread(unsigned int threadid, GenericThread* thread)
 {
 	//add thread to the map
@@ -101,5 +120,65 @@ void ThreadManager::AddThread(unsigned int threadid, GenericThread* thread)
 	}
 }
 
+const unsigned int* FindKeyThreadMap(const std::map<unsigned int, GenericThread*>& map,GenericThread* thread)
+{
+	const unsigned int* ThreadId = nullptr;
+	for (auto pair : map)
+	{
+		if (pair.second == thread)
+		{
+			ThreadId = &pair.first;
+			return ThreadId;
+		}
+	}
+	return nullptr;
+}
+
+void ThreadManager::RemoveThread(GenericThread* Thread)
+{
+	ScopeLock ThreadsLock(&m_ThreadListCritical);
+	const unsigned int* ThreadId = FindKeyThreadMap(m_Threads,Thread);
+	if (ThreadId)
+	{
+		m_Threads.erase(*ThreadId);
+		OnThreadListModification();
+	}
+}
+
+//void ThreadManager::Tick()
+//{
+//	// there is no need to tick manually right now as we are multithreading by default
+//}
+
+
+const std::string& ThreadManager::GetThreadNameInternal(unsigned int ThreadId)
+{
+	static std::string NoThreadName;
+	ScopeLock ThreadsLock(&m_ThreadListCritical);
+	GenericThread** Thread = &(m_Threads[ThreadId]);
+	if (Thread)
+	{
+		return (*Thread)->getThreadName();
+	}
+	return NoThreadName;
+}
+
+void ThreadManager::ForEachThread(const std::function<void(unsigned int threadid, GenericThread* pthread)>& func)
+{
+	ScopeLock Lock(&m_ThreadListCritical);
+	// threads can be added or removed while iterating over them, thus invalidating the iterator, so we iterate over the copy of threads collection
+	Threads ThreadsCopy = m_Threads;
+
+	for (const std::pair<unsigned int, GenericThread*>& Pair : ThreadsCopy)
+	{
+		func(Pair.first, Pair.second);
+	}
+}
 
 //todo still have alot of stuff
+
+/*-----------------------------------------------------------------------------
+	EventRef, SharedEventRef
+-----------------------------------------------------------------------------*/
+
+

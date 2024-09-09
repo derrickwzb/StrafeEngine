@@ -175,6 +175,20 @@ void WindowsPlatformProcess::SetThreadName(const TCHAR* ThreadName)
 }
 
 
+void WindowsPlatformProcess::Sleep(float Seconds)
+{
+	unsigned int Milliseconds = (unsigned int)(Seconds * 1000.0);
+	if (Milliseconds == 0)
+	{
+		::SwitchToThread();
+	}
+	else
+	{
+		::Sleep(Milliseconds);
+	}
+}
+
+
 
 
 __pragma(warning(pop))
