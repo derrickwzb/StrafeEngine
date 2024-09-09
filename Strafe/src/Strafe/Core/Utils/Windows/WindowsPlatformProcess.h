@@ -2,6 +2,8 @@
 #include "windows.h"
 #include "tlhelp32.h"
 
+class GenericEvent;
+
 #define TCHAR_TO_WCHAR(str) (wchar_t*)(str)
 #define WCHAR_TO_TCHAR(str) (TCHAR*)(str)
 #define TCHAR_TO_ANSI(str)  (char*)StringCast<char>(static_cast<const TCHAR*>(str)).Get()
@@ -9,6 +11,15 @@
 #define TCHAR_TO_UTF8(str)  (char*)FTCHARToUTF8((const TCHAR*)str).Get()
 #define UTF8_TO_TCHAR(str)  (TCHAR*)FUTF8ToTCHAR((const ANSICHAR*)str).Get()
 #define STRTOTCHAR(x)  L"x"
+
+#define PRAGMA_DISABLE_DEPRECATION_WARNINGS \
+			__pragma (warning(push)) \
+			__pragma (warning(disable: 4995)) /* 'function': name was marked as #pragma deprecated */ \
+			__pragma (warning(disable: 4996)) /* The compiler encountered a deprecated declaration. */
+
+#define PRAGMA_ENABLE_DEPRECATION_WARNINGS \
+			__pragma (warning(pop))
+
 
 //windows specific implementation of the process os functions
 //implement more generic to support other platforms
@@ -106,6 +117,8 @@ public:
 	static  void SetThreadAffinityMask(unsigned int AffinityMask);
 
 	static void Sleep(float Seconds);
+
+	static GenericEvent* CreateSynchEvent(bool bIsManualReset = false);
 
 };
 

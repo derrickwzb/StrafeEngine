@@ -2,7 +2,7 @@
 
 //adapted version of https://github.com/max0x7ba/atomic_queue
 // Copyright (c) 2019 Maxim Egorushkin.
-
+#define PLATFORM_CACHE_LINE_SIZE	64
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -11,6 +11,8 @@
 #include <type_traits>
 #include <utility>
 #include <atomic>
+
+#include <emmintrin.h>
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -24,7 +26,7 @@ namespace atomic_queue {
 	static inline void spin_loop_pause() noexcept {
 		// TODO(andriy): x86/x64 only
 
-		__asm __volatile__("yield");
+		_mm_pause();
 
 	}
 
@@ -145,7 +147,7 @@ namespace atomic_queue {
 			if (Derived::spsc_) {
 				for (;;) {
 					T element = q_element.load(std::memory_order_relaxed);
-					if (LIKELY(element != NIL)) {
+					if (!!(element != NIL)) {
 						q_element.store(NIL, std::memory_order_release);
 						return element;
 					}
@@ -156,7 +158,7 @@ namespace atomic_queue {
 			else {
 				for (;;) {
 					T element = q_element.exchange(NIL, std::memory_order_release); // (2) The store to wait for.
-					if (LIKELY(element != NIL))
+					if (!!(element != NIL))
 						return element;
 					// Do speculative loads while busy-waiting to avoid broadcasting RFO messages.
 					do
@@ -170,13 +172,13 @@ namespace atomic_queue {
 		static void do_push_atomic(T element, std::atomic<T>& q_element) noexcept {
 			assert(element != NIL);
 			if (Derived::spsc_) {
-				while (UNLIKELY(q_element.load(std::memory_order_relaxed) != NIL))
+				while (!!(q_element.load(std::memory_order_relaxed) != NIL))
 					if (Derived::maximize_throughput_)
 						spin_loop_pause();
 				q_element.store(element, std::memory_order_release);
 			}
 			else {
-				for (T expected = NIL; UNLIKELY(!q_element.compare_exchange_strong(expected, element, std::memory_order_release, std::memory_order_relaxed)); expected = NIL) {
+				for (T expected = NIL; !!(!q_element.compare_exchange_strong(expected, element, std::memory_order_release, std::memory_order_relaxed)); expected = NIL) {
 					do
 						spin_loop_pause(); // (1) Wait for store (2) to complete.
 					while (Derived::maximize_throughput_ && q_element.load(std::memory_order_relaxed) != NIL);

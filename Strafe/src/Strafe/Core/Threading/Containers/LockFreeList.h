@@ -10,33 +10,40 @@
 #define TSAN_AFTER(Addr)
 #define TSAN_ATOMIC(Type) Type
 
+
+typedef unsigned long long uint64;
 typedef unsigned int uint32;
 typedef unsigned __int64	SIZE_T;
 typedef signed long long int64;
-typedef unsigned long long uint64;
 typedef signed int int32;
 
+
+template<typename T32BITS, typename T64BITS, int PointerSize>
+struct SelectIntPointerType
+{
+	// nothing here are is it an error if the partial specializations fail
+};
+template<typename T32BITS, typename T64BITS>
+struct SelectIntPointerType<T32BITS, T64BITS, 8>
+{
+	// Select the 64 bit type.
+	typedef T64BITS TIntPointer;
+};
+
+typedef SelectIntPointerType<uint32, uint64, sizeof(void*)>::TIntPointer UPTRINT;
+
+
 //all these not a problem just sleep or smth
-void LockFreeTagCounterHasOverflowed()
-{
-	//todo log this shit
-	std::cout << "sleep" << std::endl;
-}
+void LockFreeTagCounterHasOverflowed();
 
-void LockFreeLinksExhausted(uint32 TotalNum)
-{
-	//todo log this shit 
-	std::cout << TotalNum << std::endl;
-}
 
-void* LockFreeAllocLinks(SIZE_T AllocSize)
-{
-	return malloc(AllocSize);
-}
-void LockFreeFreeLinks(SIZE_T AllocSize, void* Ptr)
-{
-	free(Ptr);
-}
+void LockFreeLinksExhausted(uint32 TotalNum);
+
+
+void* LockFreeAllocLinks(SIZE_T AllocSize);
+
+void LockFreeFreeLinks(SIZE_T AllocSize, void* Ptr);
+
 
 #define MAX_LOCK_FREE_LINKS_AS_BITS (26)
 #define MAX_LOCK_FREE_LINKS (1 << 26)
@@ -72,7 +79,7 @@ public:
 
 	LockFreeAllocOnceIndexedAllocator()
 	{
-		NextIndex.Increment(); // skip the null ptr
+		NextIndex++; // skip the null ptr
 		for (uint32 Index = 0; Index < MaxBlocks; Index++)
 		{
 			Pages[Index] = nullptr;
@@ -81,7 +88,7 @@ public:
 
 	FORCEINLINE uint32 Alloc(uint32 Count = 1)
 	{
-		uint32 FirstItem = NextIndex.Add(Count);
+		uint32 FirstItem = NextIndex.fetch_add(Count);
 		if (FirstItem + Count > MaxTotalItems)
 		{
 			LockFreeLinksExhausted(MaxTotalItems);
@@ -760,7 +767,7 @@ private:
 	static int32 FindThreadToWake(TLinkPtr Ptr)
 	{
 		int32 Result = -1;
-		uint64 Test = uint64(Ptr);
+		UPTRINT Test = UPTRINT(Ptr);
 		if (Test)
 		{
 			Result = 0;
@@ -775,17 +782,17 @@ private:
 
 	static TLinkPtr TurnOffBit(TLinkPtr Ptr, int32 BitToTurnOff)
 	{
-		return (TLinkPtr)(uint64(Ptr) & ~(uint64(1) << BitToTurnOff));
+		return (TLinkPtr)(UPTRINT(Ptr) & ~(UPTRINT(1) << BitToTurnOff));
 	}
 
 	static TLinkPtr TurnOnBit(TLinkPtr Ptr, int32 BitToTurnOn)
 	{
-		return (TLinkPtr)(uint64(Ptr) | (uint64(1) << BitToTurnOn));
+		return (TLinkPtr)(UPTRINT(Ptr) | (UPTRINT(1) << BitToTurnOn));
 	}
 
 	static bool TestBit(TLinkPtr Ptr, int32 BitToTest)
 	{
-		return !!(uint64(Ptr) & (uint64(1) << BitToTest));
+		return !!(UPTRINT(Ptr) & (UPTRINT(1) << BitToTest));
 	}
 
 	LockFreePointerFIFOBase<T, PaddingForCacheContention> PriorityQueues[NumPriorities];

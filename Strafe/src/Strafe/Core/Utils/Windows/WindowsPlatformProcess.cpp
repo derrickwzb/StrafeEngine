@@ -188,6 +188,61 @@ void WindowsPlatformProcess::Sleep(float Seconds)
 	}
 }
 
+#include "Strafe/Core/Utils/Windows/WindowsEvent.h"
+
+GenericEvent* WindowsPlatformProcess::CreateSynchEvent(bool bIsManualReset)
+{
+	//// While windows does not support forking we can still simulate the forking codeflow and test the singlethread to multithread switch on Win targets
+	//const bool bIsMultithread = PlatformProcess::SupportsMultithreading() || FForkProcessHelper::SupportsMultithreadingPostFork();
+	const bool bIsMultithread = true;
+	// Allocate the new object
+	GenericEvent* Event = NULL;
+	if (bIsMultithread)
+	{
+		Event = new EventWin();
+	}
+	else
+	{
+		//// Fake event object.
+		//Event = new FSingleThreadEvent();
+	}
+	// If the internal create fails, delete the instance and return NULL
+	PRAGMA_DISABLE_DEPRECATION_WARNINGS
+		if (!Event->Create(bIsManualReset))
+	PRAGMA_ENABLE_DEPRECATION_WARNINGS
+		{
+			delete Event;
+			Event = NULL;
+		}
+	return Event;
+}
+
+bool EventWin::Wait(uint32 WaitTime, const bool bIgnoreThreadIdleStats /*= false*/)
+{
+	//WaitForStats();
+
+	////SCOPE_CYCLE_COUNTER(STAT_EventWait);
+	////CSV_SCOPED_WAIT(WaitTime);
+	////check(Event);
+
+	////FThreadIdleStats::ScopeIdle Scope(bIgnoreThreadIdleStats);
+	return (WaitForSingleObject(Event, WaitTime) == WAIT_OBJECT_0);
+}
+
+void EventWin::Trigger()
+{
+	//TriggerForStats();
+	//check(Event);
+	SetEvent(Event);
+}
+
+
+void EventWin::Reset()
+{
+	//ResetForStats();
+	//check(Event);
+	ResetEvent(Event);
+}
 
 
 

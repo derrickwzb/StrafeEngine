@@ -1,5 +1,5 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "strafepch.h"
 #include "Timespan.h"
 
 

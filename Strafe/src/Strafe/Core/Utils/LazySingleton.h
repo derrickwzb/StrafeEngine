@@ -104,7 +104,7 @@ private:
 
 	T& GetValue()
 	{
-		check(Ptr);
+		//check(Ptr);
 		return *Ptr;
 	}
 

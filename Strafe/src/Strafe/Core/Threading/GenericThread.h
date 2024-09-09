@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Strafe/Core/Threading/Platform/WindowsPlatformAffinity.h"
+#include "Strafe/Core/Utils/Windows/WindowsEvent.h"
 
 class Runnable;
 
@@ -88,8 +89,7 @@ protected:
 	//runnable object to execute on this thread
 	Runnable* m_Runnable;
 
-	//todo threadinitsyncevent
-	//FEvent* ThreadInitSyncEvent;
+	GenericEvent* ThreadInitSyncEvent;
 
 	// the affinity to run the thread with
 	unsigned long long m_ThreadAffinityMask;

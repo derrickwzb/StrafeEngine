@@ -44,25 +44,7 @@ unsigned int WindowsGenericThread::GuardedRun()
 	return ExitCode = Run();
 }
 
-bool WindowsGenericThread::SetThreadAffinityMask(const ThreadAffinity& affinity)
-{
-	const ProcessorGroupDesc& ProcessorGroups = GetProcessorGroupDesc();
-	unsigned int CpuGroupCount = ProcessorGroups.NumProcessorGroups;
-	//check that affinity processor group is lesser than cpu group count
 
-	GROUP_AFFINITY GroupAffinity = {};
-	GROUP_AFFINITY PreviousGroupAffinity = {};
-	GroupAffinity.Mask = affinity.m_ThreadAffinityMask & ProcessorGroups.ThreadAffinities[affinity.m_ProcessorGroup];
-	GroupAffinity.Group = affinity.m_ProcessorGroup;
-	if (SetThreadGroupAffinity(m_ThreadHandle, &GroupAffinity, &PreviousGroupAffinity) == 0)
-	{
-		DWORD LastError = GetLastError();
-		//todo log error
-		return  false;
-	}
-	m_ThreadAffinityMask = affinity.m_ThreadAffinityMask;
-	return PreviousGroupAffinity.Mask != GroupAffinity.Mask || PreviousGroupAffinity.Group != GroupAffinity.Group;
-}
 
 unsigned int WindowsGenericThread::Run()
 {
@@ -206,21 +188,20 @@ const ProcessorGroupDesc& GetProcessorGroupDesc()
 
 bool WindowsGenericThread::SetThreadAffinityMask(const ThreadAffinity& affinity)
 {
-	const ProcessorGroupDesc& ProcessorGroups = GetProcessorGroupDesc();
-	unsigned int CpuGroupCount = ProcessorGroups.NumProcessorGroups;
-	//check if affinity processor group is lesser than cpu group count
-	//check(affinity.ProcessorGroup < CpuGroupCount);
+    const ProcessorGroupDesc& ProcessorGroups = GetProcessorGroupDesc();
+    unsigned int CpuGroupCount = ProcessorGroups.NumProcessorGroups;
+    //check that affinity processor group is lesser than cpu group count
 
-	GROUP_AFFINITY GroupAffinity = {};
-	GROUP_AFFINITY PreviousGroupAffinity = {};
-	GroupAffinity.Mask = affinity.m_ThreadAffinityMask & ProcessorGroups.ThreadAffinities[affinity.m_ProcessorGroup];
-	GroupAffinity.Group = affinity.m_ProcessorGroup;
-	if (SetThreadGroupAffinity(m_ThreadHandle, &GroupAffinity, &PreviousGroupAffinity) == 0)
-	{
-		DWORD LastError = GetLastError();
-		//todo log error
-		return  false;
-	}
-	m_ThreadAffinityMask = affinity.m_ThreadAffinityMask;
-	return PreviousGroupAffinity.Mask != GroupAffinity.Mask || PreviousGroupAffinity.Group != GroupAffinity.Group;
+    GROUP_AFFINITY GroupAffinity = {};
+    GROUP_AFFINITY PreviousGroupAffinity = {};
+    GroupAffinity.Mask = affinity.m_ThreadAffinityMask & ProcessorGroups.ThreadAffinities[affinity.m_ProcessorGroup];
+    GroupAffinity.Group = affinity.m_ProcessorGroup;
+    if (SetThreadGroupAffinity(m_ThreadHandle, &GroupAffinity, &PreviousGroupAffinity) == 0)
+    {
+        DWORD LastError = GetLastError();
+        //todo log error
+        return  false;
+    }
+    m_ThreadAffinityMask = affinity.m_ThreadAffinityMask;
+    return PreviousGroupAffinity.Mask != GroupAffinity.Mask || PreviousGroupAffinity.Group != GroupAffinity.Group;
 }

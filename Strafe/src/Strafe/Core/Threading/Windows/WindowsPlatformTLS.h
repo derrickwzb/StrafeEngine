@@ -54,10 +54,8 @@ struct WindowsPlatformTLS
 	 * @return The index of the allocated slot.
 	 */
 
-	FORCEINLINE static uint32 AllocTlsSlot()
-	{
-		return ::TlsAlloc();
-	}
+	static uint32 AllocTlsSlot();
+	
 
 	/**
 	 * Frees a previously allocated TLS slot
@@ -65,10 +63,8 @@ struct WindowsPlatformTLS
 	 * @param SlotIndex the TLS index to store it in
 	 */
 
-	FORCEINLINE static void FreeTlsSlot(uint32 SlotIndex)
-	{
-		::TlsFree(SlotIndex);
-	}
+	static void FreeTlsSlot(uint32 SlotIndex);
+	
 
 	/**
 	 * Sets a value in the specified TLS slot.

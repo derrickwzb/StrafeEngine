@@ -1,8 +1,7 @@
 #pragma once
 
-#define uint64 unsigned long long
-#define int8 signed char
-
+typedef unsigned long long uint64;
+typedef signed char int8;
 #define		MAKEAFFINITYMASK1(x)							((1<<x))
 #define		MAKEAFFINITYMASK2(x,y)							((1<<x)+(1<<y))
 #define		MAKEAFFINITYMASK3(x,y,z)						((1<<x)+(1<<y)+(1<<z))

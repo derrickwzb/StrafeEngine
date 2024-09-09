@@ -2,6 +2,7 @@
 #include "ThreadingBase.h"
 #include "Strafe/Core/Utils/Windows/WindowsEvent.h"
 #include "Strafe/Core/Utils/LazySingleton.h"
+#include"Strafe/Core/Utils/Windows/WindowsEventPool.h"
 
 
 
@@ -181,4 +182,33 @@ void ThreadManager::ForEachThread(const std::function<void(unsigned int threadid
 	EventRef, SharedEventRef
 -----------------------------------------------------------------------------*/
 
+EventRef::EventRef(EventMode Mode)
+{
+	if (Mode == EventMode::AutoReset)
+	{
+		Event = TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().GetRawEvent();
+	}
+	else
+	{
+		Event = TLazySingleton<TEventPool<EventMode::ManualReset>>::Get().GetRawEvent();
+	}
+}
 
+
+EventRef::~EventRef()
+{
+	if (Event->IsManualReset())
+	{
+		TLazySingleton<TEventPool<EventMode::ManualReset>>::Get().ReturnRawEvent(Event);
+	}
+	else
+	{
+		TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().ReturnRawEvent(Event);
+	}
+}
+
+SharedEventRef::SharedEventRef(EventMode Mode  /* = EEventMode::AutoReset */)
+	: Ptr(TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().GetRawEvent(),
+		[](GenericEvent* Event) { TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().ReturnRawEvent(Event); })
+{
+}
