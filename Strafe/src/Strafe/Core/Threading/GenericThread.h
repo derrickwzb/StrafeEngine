@@ -7,8 +7,11 @@ class Runnable;
 
 class GenericThread
 {
+	//no forkable threads because we are not doing any process forking
+	//we aint a server
+	friend class TlsAutoCleanup;
 
-//index of tls slot for thread pointer
+	//index of tls slot for thread pointer
 	static unsigned int m_TlsSlot;
 
 public:
