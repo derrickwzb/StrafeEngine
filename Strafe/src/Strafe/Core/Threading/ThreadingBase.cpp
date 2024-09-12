@@ -3,6 +3,7 @@
 #include "Strafe/Core/Utils/Windows/WindowsEvent.h"
 #include "Strafe/Core/Utils/LazySingleton.h"
 #include"Strafe/Core/Utils/Windows/WindowsEventPool.h"
+#include "Strafe/Core/Threading/Windows/WindowsPlatformTLS.h"
 
 
 
@@ -15,7 +16,11 @@ unsigned int GenericThread::m_TlsSlot = GenericThread::GetTlsSlot();
 unsigned int GenericThread::GetTlsSlot()
 {
 	//implement 
-	return 0;
+
+	//check if is in game thread
+	unsigned int TlsSlot = WindowsPlatformTLS::AllocTlsSlot();
+	if (TlsSlot)
+		return TlsSlot;
 }
 
 GenericThread::GenericThread()
