@@ -112,30 +112,42 @@ namespace strafe
 		m_ResourceManager->AddRenderData("test", std::move(renderData));
 	}
 
-	static const signed int WORK_LOAD = 10;
+	static const signed int WORK_LOAD = 100000000;
 	double PerformWork(signed int WorkLoad)
 	{
-		
+		auto start = std::chrono::high_resolution_clock::now();
 		std::cout << "singlethreaded for loop" << std::endl;
 		double Result = 0.0;
 		for (signed int i = 0; i < WorkLoad; ++i)
 		{
-			std::cout << "Singlethreaede id :" << std::this_thread::get_id() << std::endl;
+			//std::cout << "Singlethreaede id :" << std::this_thread::get_id() << std::endl;
 			Result += std::sqrt(i * 1.0);
 		}
+		auto end = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<double> single_threaded_time = end - start;
+
+		std::cout << "Single-threaded time: " << single_threaded_time.count() << " seconds" << std::endl;
+		std::cout << "Single-threaded result: " << Result << std::endl;
 		return Result;
+
 	}
 
 
 	double PerformWorkmt(signed int WorkLoad)
 	{
 		std::cout << "multithreaded for loop" << std::endl;
+
+		auto start = std::chrono::high_resolution_clock::now();
 		double Result = 0.0;
 		for (signed int i = 0; i < WorkLoad; ++i)
 		{
-			std::cout <<"Multithreaded id :"<<std::this_thread::get_id() << std::endl;
 			Result += std::sqrt(i * 1.0);
 		}
+		
+		auto end = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<double> multi_threaded_time = end - start;
+
+		std::cout << "Multi-threaded time: " << multi_threaded_time.count() << " seconds" << std::endl;
 		return Result;
 	}
 	unsigned int ThreadWork()
@@ -165,7 +177,7 @@ namespace strafe
 		{
 			// Constructs the actual thread object. It will begin execution immediately
 			// If you've passed in any inputs, set them up before calling this.
-			Thread = GenericThread::Create(this, TEXT("Give your thread a good name"));
+			Thread = GenericThread::Create(this, TEXT("Give your thread a good name"), 0U, ThreadPri_Highest);
 		}
 
 		// Destructor
@@ -223,22 +235,19 @@ namespace strafe
 	
 	void TestFunction()
 	{
-
+		auto start = std::chrono::high_resolution_clock::now();
 		FMyWorker* Worker1 = new FMyWorker();
 		FMyWorker* Worker2 = new FMyWorker();
 		std::cout << "Starting Performance Test" << std::endl;
 
 		// Single-threaded test
-		auto start = std::chrono::high_resolution_clock::now();
+		
 		double single_result = PerformWork(WORK_LOAD);
-		auto end = std::chrono::high_resolution_clock::now();
-		std::chrono::duration<double> single_threaded_time = end - start;
-
-		std::cout << "Single-threaded time: " << single_threaded_time.count() << " seconds" << std::endl;
-		std::cout << "Single-threaded result: " << single_result << std::endl;
+		
+		
 
 		// Multi-threaded test
-		start = std::chrono::high_resolution_clock::now();
+		//start = std::chrono::high_resolution_clock::now();
 
 		//if (Worker1)
 		//{
@@ -251,16 +260,15 @@ namespace strafe
 		//	//std::cout << "this might run first" << std::endl;
 		//}
 
-		end = std::chrono::high_resolution_clock::now();
-		std::chrono::duration<double> multi_threaded_time = end - start;
-
-		std::cout << "Multi-threaded time: " << multi_threaded_time.count() << " seconds" << std::endl;
+		
 
 		delete Worker1;
 		delete Worker2;
 
-		double speedup = single_threaded_time.count() / multi_threaded_time.count();
-		std::cout << "Speedup: " << speedup << std::endl;
+		/*double speedup = single_threaded_time.count() / multi_threaded_time.count();
+		std::cout << "Speedup: " << speedup << std::endl;*/
+		auto end = std::chrono::high_resolution_clock::now();
+		std::cout << "Total time: " << std::chrono::duration<double>(end - start).count() << " seconds :: FUNCTION ENDS HERE" << std::endl;
 	}
 	bool once = false;
 	void Application::Run()
