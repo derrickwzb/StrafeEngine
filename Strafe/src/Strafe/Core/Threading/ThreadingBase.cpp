@@ -4,6 +4,8 @@
 #include "Strafe/Core/Utils/LazySingleton.h"
 #include"Strafe/Core/Utils/Windows/WindowsEventPool.h"
 #include "Strafe/Core/Threading/Windows/WindowsPlatformTLS.h"
+#include "Strafe/Core/Threading/ThreadSingletonInitializer.h"
+#include "Strafe/Core/Threading/TlsAutoCleanup.h"
 
 
 
@@ -32,7 +34,6 @@ GenericThread::GenericThread()
 {
 }
 
-
 GenericThread::~GenericThread()
 {
 	//kill the thread
@@ -41,7 +42,7 @@ GenericThread::~GenericThread()
 
 GenericThread* GenericThread::Create(
 Runnable* InRunnable
-, const std::string* ThreadName
+, const TCHAR* ThreadName
 , unsigned int InStackSize
 , ThreadPriority InThreadPri
 , unsigned long long InThreadAffinityMask
@@ -54,9 +55,51 @@ Runnable* InRunnable
 	if (NewThread)
 	{
 		//setupcreated thread
+		SetupThread(NewThread, InRunnable, ThreadName, InStackSize, InThreadPri, InThreadAffinityMask, InCreateFlags);
+		
 	}
 
 	return NewThread;
+}
+
+void GenericThread::SetupThread(GenericThread*& NewThread, class Runnable* InRunnable, const TCHAR* ThreadName, uint32 InStackSize, ThreadPriority InThreadPri, uint64 InThreadAffinityMask, ThreadCreateFlags InCreateFlags)
+{
+	// Call the thread's create method
+	bool bIsValid = NewThread->CreateInternal(InRunnable, ThreadName, InStackSize, InThreadPri, InThreadAffinityMask, InCreateFlags);
+
+	if (bIsValid)
+	{
+		NewThread->PostCreate(InThreadPri);
+	}
+	else
+	{
+		delete NewThread;
+		NewThread = nullptr;
+	}
+}
+
+void GenericThread::PostCreate(ThreadPriority InThreadPri)
+{
+	//log that it is created
+}
+
+void GenericThread::SetTls()
+{
+	// Make sure it's called from the owning thread.
+	/*check(ThreadID == FPlatformTLS::GetCurrentThreadId());
+	check(FPlatformTLS::IsValidTlsSlot(RunnableTlsSlot));*/
+	//set the tls slot for this thread
+	WindowsPlatformTLS::SetTlsValue(m_TlsSlot, this);
+
+	//todo set task tag might be useful 
+}
+
+void GenericThread::ClearTls()
+{
+	// Make sure it's called from the owning thread.
+	/*check(ThreadID == FPlatformTLS::GetCurrentThreadId());
+	check(FPlatformTLS::IsValidTlsSlot(RunnableTlsSlot));*/
+	WindowsPlatformTLS::SetTlsValue(m_TlsSlot, nullptr);
 }
 
 //just assume this works
@@ -217,3 +260,89 @@ SharedEventRef::SharedEventRef(EventMode Mode  /* = EEventMode::AutoReset */)
 		[](GenericEvent* Event) { TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().ReturnRawEvent(Event); })
 {
 }
+
+/*-----------------------------------------------------------------------------
+	FThreadSingletonInitializer
+-----------------------------------------------------------------------------*/
+#define AUTORTFM_OPEN(...) do { __VA_ARGS__ } while (false)
+int32 CustomInterlockedCompareExchange(volatile int32* Dest, int32 Exchange, int32 Comparand)
+{
+	return (int32)::_InterlockedCompareExchange((long*)Dest, (long)Exchange, (long)Comparand);
+}
+
+TlsAutoCleanup* ThreadSingletonInitializer::Get(TlsAutoCleanup* (*CreateInstance)(), uint32& TlsSlot)
+{
+	uint32 tlsslot;
+	AUTORTFM_OPEN({
+
+		tlsslot = (uint32)((volatile const int32*)&TlsSlot);
+		if (tlsslot == WindowsPlatformTLS::InvalidTlsSlot)
+		{
+			const uint32 ThisTlsSlot = WindowsPlatformTLS::AllocTlsSlot();
+			//check(FPlatformTLS::IsValidTlsSlot(ThisTlsSlot));
+			const uint32 PrevTlsSlot = (int32)CustomInterlockedCompareExchange((int32*)&TlsSlot, (int32)ThisTlsSlot, WindowsPlatformTLS::InvalidTlsSlot);
+			if (PrevTlsSlot != WindowsPlatformTLS::InvalidTlsSlot)
+			{
+				WindowsPlatformTLS::FreeTlsSlot(ThisTlsSlot);
+				TlsSlot = PrevTlsSlot;
+			}
+			else
+			{
+				TlsSlot = ThisTlsSlot;
+			}
+		}
+
+	});
+	TlsAutoCleanup* ThreadSingleton = nullptr;
+	AUTORTFM_OPEN(
+		{
+			ThreadSingleton = (TlsAutoCleanup*)WindowsPlatformTLS::GetTlsValue(TlsSlot);
+			if (!ThreadSingleton)
+			{
+				// these are generally left open and only get cleaned up on thread exit so avoiding dealing with an OPENABORT here to clean this up
+				ThreadSingleton = CreateInstance();
+				ThreadSingleton->Register();
+				WindowsPlatformTLS::SetTlsValue(TlsSlot, ThreadSingleton);
+			}
+		});
+	return ThreadSingleton;
+}
+
+TlsAutoCleanup* ThreadSingletonInitializer::TryGet(uint32& TlsSlot)
+{
+	if (TlsSlot == WindowsPlatformTLS::InvalidTlsSlot)
+	{
+		return nullptr;
+	}
+
+	TlsAutoCleanup* ThreadSingleton = (TlsAutoCleanup*)WindowsPlatformTLS::GetTlsValue(TlsSlot);
+	return ThreadSingleton;
+}
+
+TlsAutoCleanup* ThreadSingletonInitializer::Inject(TlsAutoCleanup* Instance, uint32& TlsSlot)
+{
+	if (TlsSlot == WindowsPlatformTLS::InvalidTlsSlot)
+	{
+		const uint32 ThisTlsSlot = WindowsPlatformTLS::AllocTlsSlot();
+		//check(FPlatformTLS::IsValidTlsSlot(ThisTlsSlot));
+		const uint32 PrevTlsSlot = CustomInterlockedCompareExchange((int32*)&TlsSlot, (int32)ThisTlsSlot, WindowsPlatformTLS::InvalidTlsSlot);
+		if (PrevTlsSlot != WindowsPlatformTLS::InvalidTlsSlot)
+		{
+			WindowsPlatformTLS::FreeTlsSlot(ThisTlsSlot);
+		}
+	}
+
+	TlsAutoCleanup* ThreadSingleton = (TlsAutoCleanup*)WindowsPlatformTLS::GetTlsValue(TlsSlot);
+	WindowsPlatformTLS::SetTlsValue(TlsSlot, Instance);
+	return ThreadSingleton;
+}
+
+/*-----------------------------------------------------------------------------
+	TlsAutoCleanup
+-----------------------------------------------------------------------------*/
+void TlsAutoCleanup::Register()
+{
+	static thread_local std::vector<std::unique_ptr<TlsAutoCleanup>> TlsInstances;
+	TlsInstances.push_back(std::unique_ptr<TlsAutoCleanup>(this));
+}
+

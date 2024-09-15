@@ -39,7 +39,7 @@ struct WindowsPlatformProcess
 		WindowsSemaphore(const TCHAR* name, HANDLE semaphore);
 
 		//allocation free constructor
-		WindowsSemaphore(const wchar_t& name, HANDLE semaphore);
+		WindowsSemaphore(const TCHAR& name, HANDLE semaphore);
 
 		//destructor
 		virtual ~WindowsSemaphore();
@@ -118,6 +118,29 @@ public:
 
 	static void Sleep(float Seconds);
 
+	/**
+	 * Gets an event from the pool or creates a new one if necessary.
+	 *
+	 * @param bIsManualReset Whether the event requires manual reseting or not.
+	 * @return An event, or nullptr none could be created.
+	 * @see CreateSynchEvent, ReturnSynchEventToPool
+	 */
+	static  class GenericEvent* GetSynchEventFromPool(bool bIsManualReset = false);
+
+	/**
+	 * Deletes all the recycled sync events contained by the pools
+	 */
+	static  void FlushPoolSyncEvents();
+
+
+	/**
+	 * Returns an event to the pool.
+	 *
+	 * @param Event The event to return.
+	 * @see CreateSynchEvent, GetSynchEventFromPool
+	 */
+	static  void ReturnSynchEventToPool(GenericEvent* Event);
+	//not used??
 	static GenericEvent* CreateSynchEvent(bool bIsManualReset = false);
 
 };

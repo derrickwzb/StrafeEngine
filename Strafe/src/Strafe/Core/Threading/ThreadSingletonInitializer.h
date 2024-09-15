@@ -38,8 +38,18 @@ protected:
 		: m_ThreadId(WindowsPlatformTLS::GetCurrentThreadId())
 	{}
 
+	virtual ~ThreadSingleton()
+	{
+		// Clean the dangling pointer from the TLS.
+		/*check(GetTlsSlot() != FPlatformTLS::InvalidTlsSlot);*/
+		if (((TlsAutoCleanup*)WindowsPlatformTLS::GetTlsValue(GetTlsSlot())) == static_cast<TlsAutoCleanup*>(this))
+		{
+			WindowsPlatformTLS::SetTlsValue(GetTlsSlot(), nullptr);
+		}
+	}
+
 	//returns a new instance of the thread singleton
-	static TlsAutoCleanup* CreateInstance)()
+	static TlsAutoCleanup* CreateInstance()
 	{
 		return new T();
 	}

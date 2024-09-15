@@ -4,6 +4,11 @@
 #include "Strafe/Core/Threading/Platform/WindowsPlatformAffinity.h"
 #include "Strafe/Core/Threading/GenericThread.h"
 #include "Strafe/Core/Threading/Runnable.h"
+#include "Strafe/Core/Threading/ThreadManager.h"
+
+#include "Strafe/Core/Utils/Windows/WindowsPlatformProcess.h"
+
+
 
 class Runnable;
 class WindowsGenericThread : public GenericThread
@@ -14,8 +19,8 @@ class WindowsGenericThread : public GenericThread
 	static ::DWORD WINAPI _ThreadProc(::LPVOID lpParameter)
 	{
 		auto* thread = (WindowsGenericThread*)lpParameter;
-		/*return thread->m_ThreadFunction();*/
-		
+		ThreadManager::Get().AddThread(thread->GetThreadId(), thread);
+		return thread->GuardedRun();
 	}
 
 	unsigned int GuardedRun();
@@ -29,6 +34,7 @@ class WindowsGenericThread : public GenericThread
 			if (m_ThreadHandle)
 			{
 			//kill
+				Kill(true);
 			}
 		}
 
@@ -40,6 +46,7 @@ class WindowsGenericThread : public GenericThread
 
 		virtual void Suspend(bool ShouldPause = true) override
 		{
+			//todo check thread
 			if (ShouldPause == true)
 			{
 				SuspendThread(m_ThreadHandle);
@@ -90,9 +97,10 @@ class WindowsGenericThread : public GenericThread
 
 		static int TranslateThreadPriority(ThreadPriority priority);
 
+		
 	protected:
 		virtual bool CreateInternal(Runnable* InRunnable
-			, const std::string* ThreadName
+			, const TCHAR* ThreadName
 			, unsigned int InStackSize = 0
 			, ThreadPriority InThreadPri = ThreadPri_Normal
 			, unsigned long long InThreadAffinityMask = 0
@@ -109,10 +117,10 @@ class WindowsGenericThread : public GenericThread
 			m_Runnable = InRunnable;
 			m_ThreadAffinityMask = InThreadAffinityMask;
 
-			//todo create sync event to guarantee the init function is called first
-			//ThreadInitSyncEvent = FPlatformProcess::GetSynchEventFromPool(true);
+			// Create the sync event for the thread to signal when it's initialized
+			ThreadInitSyncEvent = WindowsPlatformProcess::GetSynchEventFromPool(true);
 
-			m_ThreadName = ThreadName->c_str() ? ThreadName->c_str() : "UnnamedThread";
+			m_ThreadName = ThreadName ? TCharToStdString(ThreadName) : "UnnamedThread";
 			m_ThreadPriority = InThreadPri;
 
 			//create new thread here
@@ -129,9 +137,8 @@ class WindowsGenericThread : public GenericThread
 			{
 				ResumeThread(m_ThreadHandle);
 
-				//startup thread
-				//todo threadsyncinitevent
-				//ThreadInitSyncEvent->Wait(INFINITE);
+				//let the thread startup
+				ThreadInitSyncEvent->Wait(INFINITE);
 
 				m_ThreadPriority = ThreadPri_Normal;
 				SetThreadPriority(InThreadPri);
@@ -139,8 +146,8 @@ class WindowsGenericThread : public GenericThread
 
 
 			//// Cleanup the sync event
-			//FPlatformProcess::ReturnSynchEventToPool(ThreadInitSyncEvent);
-			//ThreadInitSyncEvent = nullptr;
+			WindowsPlatformProcess::ReturnSynchEventToPool(ThreadInitSyncEvent);
+			ThreadInitSyncEvent = nullptr;
 			return m_ThreadHandle != NULL;
 
 		}

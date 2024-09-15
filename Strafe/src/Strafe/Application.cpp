@@ -23,6 +23,9 @@
 #include "File/FileManager.h"
 
 #include "Strafe/Graphics/Renderer/RenderData.h"
+#include "Strafe/Core/Threading/GenericThread.h"
+#include "Strafe/Core/Threading/Runnable.h"
+
 strafe::Transform* t1, *t2, *t3, *t4, *t5;
 
 namespace strafe
@@ -109,10 +112,164 @@ namespace strafe
 		m_ResourceManager->AddRenderData("test", std::move(renderData));
 	}
 
+	static const signed int WORK_LOAD = 10;
+	double PerformWork(signed int WorkLoad)
+	{
+		
+		std::cout << "singlethreaded for loop" << std::endl;
+		double Result = 0.0;
+		for (signed int i = 0; i < WorkLoad; ++i)
+		{
+			std::cout << "Singlethreaede id :" << std::this_thread::get_id() << std::endl;
+			Result += std::sqrt(i * 1.0);
+		}
+		return Result;
+	}
+
+
+	double PerformWorkmt(signed int WorkLoad)
+	{
+		std::cout << "multithreaded for loop" << std::endl;
+		double Result = 0.0;
+		for (signed int i = 0; i < WorkLoad; ++i)
+		{
+			std::cout <<"Multithreaded id :"<<std::this_thread::get_id() << std::endl;
+			Result += std::sqrt(i * 1.0);
+		}
+		return Result;
+	}
+	unsigned int ThreadWork()
+	{
+		double Result = PerformWorkmt(WORK_LOAD);
+		std::cout << "multithreaded Thread result: " << Result << std::endl;
+		return 0;
+	}
+
+	class FMyWorker : public Runnable
+	{
+	public:
+
+		// The boolean that acts as the main switch
+	// When this is false, inputs and outputs can be safely read from game thread
+		bool bInputReady = false;
+
+
+		// Declare the variables that are the inputs and outputs here.
+		// You can have as many as you want. Remember not to use pointers, this must be
+		// plain old data
+		// For example:
+		int ExampleIntInput = 0;
+		float ExampleFloatOutput = 0.0f;
+		// Constructor, create the thread by calling this
+		FMyWorker()
+		{
+			// Constructs the actual thread object. It will begin execution immediately
+			// If you've passed in any inputs, set them up before calling this.
+			Thread = GenericThread::Create(this, TEXT("Give your thread a good name"));
+		}
+
+		// Destructor
+		virtual ~FMyWorker() override
+		{
+			if (Thread)
+			{
+				// Kill() is a blocking call, it waits for the thread to finish.
+				// Hopefully that doesn't take too long
+				Thread->Kill();
+				delete Thread;
+			}
+		}
+
+
+		// Overriden from FRunnable
+		// Do not call these functions youself, that will happen automatically
+		bool Init() override
+		{
+			std::cout << "My custom thread has been initialized" << std::endl;
+
+				// Return false if you want to abort the thread
+				return true;
+		}// Do your setup here, allocate memory, ect.
+		uint32 Run() override
+		{
+			// Peform your processor intensive task here. In this example, a neverending
+			// task is created, which will only end when Stop is called.
+				
+				ThreadWork();
+			
+
+			return 0;
+		}// Main data processing happens here
+		void Stop() override
+		{
+			// Clean up memory usage here, and make sure the Run() function stops soon
+			// The main thread will be stopped until this finishes!
+
+			// For this example, we just need to terminate the while loop
+			// It will finish in <= 1 sec, due to the Sleep()
+			bRunThread = false;
+		}// Clean up any memory you allocated here
+
+
+	private:
+
+		// Thread handle. Control the thread using this, with operators like Kill and Suspend
+		GenericThread* Thread;
+
+		// Used to know when the thread should exit, changed in Stop(), read in Run()
+		bool bRunThread;
+	};
+
+	
+	void TestFunction()
+	{
+
+		FMyWorker* Worker1 = new FMyWorker();
+		FMyWorker* Worker2 = new FMyWorker();
+		std::cout << "Starting Performance Test" << std::endl;
+
+		// Single-threaded test
+		auto start = std::chrono::high_resolution_clock::now();
+		double single_result = PerformWork(WORK_LOAD);
+		auto end = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<double> single_threaded_time = end - start;
+
+		std::cout << "Single-threaded time: " << single_threaded_time.count() << " seconds" << std::endl;
+		std::cout << "Single-threaded result: " << single_result << std::endl;
+
+		// Multi-threaded test
+		start = std::chrono::high_resolution_clock::now();
+
+		//if (Worker1)
+		//{
+
+		//	
+		//	Worker1->Run();
+		//	//PerformWork(WORK_LOAD);
+		//	//Worker2->Run();
+		//	
+		//	//std::cout << "this might run first" << std::endl;
+		//}
+
+		end = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<double> multi_threaded_time = end - start;
+
+		std::cout << "Multi-threaded time: " << multi_threaded_time.count() << " seconds" << std::endl;
+
+		delete Worker1;
+		delete Worker2;
+
+		double speedup = single_threaded_time.count() / multi_threaded_time.count();
+		std::cout << "Speedup: " << speedup << std::endl;
+	}
+	bool once = false;
 	void Application::Run()
 	{
+		
+
 		while(m_Running)
 		{
+			
 			//input update must be called before window polls for inputs
 			m_InputHandler->Update(m_PrimaryWindow->GetDeltaTime());
 			m_FileManager->Update();
@@ -126,6 +283,13 @@ namespace strafe
 			m_RenderGraph->Execute();
 
 			m_PrimaryWindow->EndRender();
+
+			if (!once)
+			{
+				TestFunction();
+
+				once = true;
+			}
 		}
 	}
 

@@ -2,6 +2,9 @@
 
 #include "Strafe/Core/Threading/Platform/WindowsPlatformAffinity.h"
 #include "Strafe/Core/Utils/Windows/WindowsEvent.h"
+#include "Strafe/Core/Threading/TlsAutoCleanup.h"
+#include "Strafe/Core/Threading/ThreadSingletonInitializer.h"
+#include "Strafe/Core/Threading/ThreadManager.h"
 
 class Runnable;
 
@@ -9,7 +12,10 @@ class GenericThread
 {
 	//no forkable threads because we are not doing any process forking
 	//we aint a server
+	friend class ThreadSingletonInitializer;
 	friend class TlsAutoCleanup;
+	friend class ThreadManager;
+	
 
 	//index of tls slot for thread pointer
 	static unsigned int m_TlsSlot;
@@ -20,7 +26,7 @@ public:
 	
 	//factory method to create a thread with specific stack size and thread priority
 	static GenericThread* Create(class Runnable* InRunnable,
-		const std::string* ThreadName,
+		const TCHAR* ThreadName,
 		unsigned int InStackSize = 0,
 		ThreadPriority InThreadPri = ThreadPri_Normal,
 		unsigned long long InThreadAffinityMask = WindowsPlatformAffinity::GetNoAffinityMask(),
@@ -70,15 +76,24 @@ public:
 
 	virtual ~GenericThread();
 
+	/**
+	 * @return a runnable thread that is executing this runnable, if return value is nullptr, it means the running thread can be game thread or a thread created outside the runnable interface
+	 */
+	static GenericThread* GetGenericThread()
+	{
+		GenericThread* RunnableThread = (GenericThread*)WindowsPlatformTLS::GetTlsValue(m_TlsSlot);
+		return RunnableThread;
+	}
+
 protected:
 
 	//create the thread with the specified stack size and thread priority
 	virtual bool CreateInternal(class Runnable* InRunnable,
-		const std::string* ThreadName,
+		const TCHAR* ThreadName,
 		unsigned int InStackSize = 0,
 		ThreadPriority InThreadPri = ThreadPri_Normal,
 		unsigned long long InThreadAffinityMask = 0 ,
-		ThreadCreateFlags InCreateFlags = ThreadCreateFlags::None);
+		ThreadCreateFlags InCreateFlags = ThreadCreateFlags::None) = 0;
 
 	//store this instance in the generic thread tls slot
 	void SetTls();
@@ -104,7 +119,7 @@ protected:
 private:
 	
 	//called to setup a newly created GenericThread
-	static void SetupThread(GenericThread* thread, class Runnable* InRunnable, const std::string* InThreadName, unsigned int InStackSize, ThreadPriority InThreadPri, unsigned long long InThreadAffinityMask, ThreadCreateFlags InCreateFlags);
+	static void SetupThread(GenericThread*& thread, class Runnable* InRunnable, const TCHAR* InThreadName, uint32 InStackSize, ThreadPriority InThreadPri, uint64 InThreadAffinityMask, ThreadCreateFlags InCreateFlags);
 
 	//used by the thread manager to tick threads in single threaded mode
 	virtual void Tick() {};

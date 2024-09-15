@@ -1,5 +1,8 @@
 #include "strafepch.h"
 #include "Strafe/Core/Threading/Platform/WindowsPlatformAffinity.h"
+#include  "Strafe/Core/Utils/LazySingleton.h"
+#include "Strafe/Core/Utils/Windows/WindowsEvent.h"
+#include "Strafe/Core/Utils/Windows/WindowsEventPool.h"
 #include "WindowsPlatformProcess.h"
 #include <shellapi.h>
 #include <ShlObj.h>
@@ -12,7 +15,18 @@ __pragma (warning(disable: 4244)) /* 'argument': conversion from 'type1' to 'typ
 __pragma (warning(disable: 4838)) /* 'argument': conversion from 'type1' to 'type2' requires a narrowing conversion */
 
 
+WindowsPlatformProcess::WindowsSemaphore::WindowsSemaphore(const TCHAR* InName, HANDLE InSemaphore)
+{
+	wcsncpy(Name, InName, MaxSemaphoreName - 1);
+	Name[MaxSemaphoreName - 1] = L'\0'; // Ensure null-termination
 
+	m_SemaphoreHandle = InSemaphore;
+}
+
+WindowsPlatformProcess::WindowsSemaphore::~WindowsSemaphore()
+{
+	// actual cleanup should be done in DeleteInterprocessSynchObject() since it can return errors
+}
 void WindowsPlatformProcess::WindowsSemaphore::Lock()
 {
 	//check
@@ -215,14 +229,45 @@ GenericEvent* WindowsPlatformProcess::CreateSynchEvent(bool bIsManualReset)
 			Event = NULL;
 		}
 	return Event;
+	/*return NULL;*/
 }
+GenericEvent* WindowsPlatformProcess::GetSynchEventFromPool(bool bIsManualReset)
+{
+	return bIsManualReset
+		? TLazySingleton<TEventPool<EventMode::ManualReset>>::Get().GetEventFromPool()
+		: TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().GetEventFromPool();
+}
+
+void WindowsPlatformProcess::FlushPoolSyncEvents()
+{
+	TLazySingleton<TEventPool<EventMode::ManualReset>>::Get().EmptyPool();
+	TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().EmptyPool();
+}
+void WindowsPlatformProcess::ReturnSynchEventToPool(GenericEvent* Event)
+{
+	if (!Event)
+	{
+		return;
+	}
+
+	if (Event->IsManualReset())
+	{
+		TLazySingleton<TEventPool<EventMode::ManualReset>>::Get().ReturnToPool(Event);
+	}
+	else
+	{
+		TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().ReturnToPool(Event);
+	}
+}
+
+
+/////////////////////////windows event
 
 bool EventWin::Wait(uint32 WaitTime, const bool bIgnoreThreadIdleStats /*= false*/)
 {
 	//WaitForStats();
 
-	////SCOPE_CYCLE_COUNTER(STAT_EventWait);
-	////CSV_SCOPED_WAIT(WaitTime);
+	
 	////check(Event);
 
 	////FThreadIdleStats::ScopeIdle Scope(bIgnoreThreadIdleStats);

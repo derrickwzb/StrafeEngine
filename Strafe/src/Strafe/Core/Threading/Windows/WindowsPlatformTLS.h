@@ -16,7 +16,7 @@ namespace WindowsPlatformTLS_Private
 	constexpr uint32 MaxThreads = WINDOWS_MAX_NUM_THREADS_WITH_TLS_SLOTS; // how many threads can use TLS
 
 	// a single OS TLS slot that is used to store the thread storage
-	 extern uint32 PrimarySlot;
+	static uint32 PrimarySlot;
 
 	 void** AllocThreadStorage();
 }

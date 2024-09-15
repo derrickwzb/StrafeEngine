@@ -3,6 +3,7 @@
 #include "Strafe/Core/Utils/Windows/WindowsPlatformProcess.h"
 #include <cstdlib>  // For malloc
 #include <cstdint>  // For uint8_t
+#include "Strafe/Core/Utils/Windows/WindowsPlatformTypes.h"
 
 
 int WindowsGenericThread::TranslateThreadPriority(ThreadPriority priority)
@@ -30,10 +31,12 @@ int WindowsGenericThread::TranslateThreadPriority(ThreadPriority priority)
 
 }
 
-unsigned int WindowsGenericThread::GuardedRun()
+uint32 WindowsGenericThread::GuardedRun()
 {
-	unsigned int ExitCode = 0;
+    uint32 ExitCode = 0;
 
+
+    //equivalent to windowsplatform process set thread affinity mask function
 	if (m_ThreadAffinityMask != WindowsPlatformAffinity::GetNoAffinityMask())
 	{
 		::SetThreadAffinityMask(::GetCurrentThread(), (DWORD_PTR)m_ThreadAffinityMask);
@@ -46,15 +49,34 @@ unsigned int WindowsGenericThread::GuardedRun()
 
 
 
-unsigned int WindowsGenericThread::Run()
+uint32 WindowsGenericThread::Run()
 {
-	unsigned int ExitCode = 0;
+	uint32 ExitCode = 1;
     //check runnable valid
 
     if (m_Runnable->Init() == true)
     {
+        ThreadInitSyncEvent->Trigger();
+
+		//setup tls for this thread . to be used by tls auto cleanup objects
+        SetTls();
+
+		ExitCode = m_Runnable->Run();
+
+        //allow any allocated resources to be cleaned up
+		m_Runnable->Exit();
+
+        ClearTls();
+
+
         
     }
+    else
+    {
+        //initialization has failed , release the sync event
+		ThreadInitSyncEvent->Trigger();
+    }
+    return ExitCode;
 }
 
 
@@ -189,8 +211,8 @@ const ProcessorGroupDesc& GetProcessorGroupDesc()
 bool WindowsGenericThread::SetThreadAffinityMask(const ThreadAffinity& affinity)
 {
     const ProcessorGroupDesc& ProcessorGroups = GetProcessorGroupDesc();
-    unsigned int CpuGroupCount = ProcessorGroups.NumProcessorGroups;
-    //check that affinity processor group is lesser than cpu group count
+    uint32 CpuGroupCount = ProcessorGroups.NumProcessorGroups;
+    //todo check that affinity processor group is lesser than cpu group count
 
     GROUP_AFFINITY GroupAffinity = {};
     GROUP_AFFINITY PreviousGroupAffinity = {};
