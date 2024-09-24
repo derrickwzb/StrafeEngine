@@ -3,6 +3,7 @@
 #include "Strafe/Core/Utils/Windows/WindowsPlatformAtomics.h"
 #include <type_traits>
 #include <atomic>
+#include <utility>
 
 //a virtual interface for ref counted objects to implement
 class RefCountedObject
@@ -127,3 +128,231 @@ enum class RefCountingModeEnum : uint8
 	/** Thread-safe, never spin locks, but slower */
 	ThreadSafe = 1
 };
+
+/**
+ * A smart pointer to an object which implements AddRef/Release.
+ */
+template<typename ReferencedType>
+class RefCountPtr
+{
+	typedef ReferencedType* ReferenceType;
+
+public:
+
+	FORCEINLINE RefCountPtr() :
+		Reference(nullptr)
+	{ }
+
+	RefCountPtr(ReferencedType* InReference, bool bAddRef = true)
+	{
+		Reference = InReference;
+		if (Reference && bAddRef)
+		{
+			Reference->AddRef();
+		}
+	}
+
+	RefCountPtr(const RefCountPtr& Copy)
+	{
+		Reference = Copy.Reference;
+		if (Reference)
+		{
+			Reference->AddRef();
+		}
+	}
+
+	template<typename CopyReferencedType>
+	explicit RefCountPtr(const RefCountPtr<CopyReferencedType>& Copy)
+	{
+		Reference = static_cast<ReferencedType*>(Copy.GetReference());
+		if (Reference)
+		{
+			Reference->AddRef();
+		}
+	}
+
+	FORCEINLINE RefCountPtr(TRefCountPtr&& Move)
+	{
+		Reference = Move.Reference;
+		Move.Reference = nullptr;
+	}
+
+	template<typename MoveReferencedType>
+	explicit RefCountPtr(RefCountPtr<MoveReferencedType>&& Move)
+	{
+		Reference = static_cast<ReferencedType*>(Move.GetReference());
+		Move.Reference = nullptr;
+	}
+
+	~RefCountPtr()
+	{
+		if (Reference)
+		{
+			Reference->Release();
+		}
+	}
+
+	RefCountPtr& operator=(ReferencedType* InReference)
+	{
+		if (Reference != InReference)
+		{
+			// Call AddRef before Release, in case the new reference is the same as the old reference.
+			ReferencedType* OldReference = Reference;
+			Reference = InReference;
+			if (Reference)
+			{
+				Reference->AddRef();
+			}
+			if (OldReference)
+			{
+				OldReference->Release();
+			}
+		}
+		return *this;
+	}
+
+	FORCEINLINE RefCountPtr& operator=(const RefCountPtr& InPtr)
+	{
+		return *this = InPtr.Reference;
+	}
+
+	template<typename CopyReferencedType>
+	FORCEINLINE RefCountPtr& operator=(const RefCountPtr<CopyReferencedType>& InPtr)
+	{
+		return *this = InPtr.GetReference();
+	}
+
+	RefCountPtr& operator=(RefCountPtr&& InPtr)
+	{
+		if (this != &InPtr)
+		{
+			ReferencedType* OldReference = Reference;
+			Reference = InPtr.Reference;
+			InPtr.Reference = nullptr;
+			if (OldReference)
+			{
+				OldReference->Release();
+			}
+		}
+		return *this;
+	}
+
+	template<typename MoveReferencedType>
+	RefCountPtr& operator=(RefCountPtr<MoveReferencedType>&& InPtr)
+	{
+		// InPtr is a different type (or we would have called the other operator), so we need not test &InPtr != this
+		ReferencedType* OldReference = Reference;
+		Reference = InPtr.Reference;
+		InPtr.Reference = nullptr;
+		if (OldReference)
+		{
+			OldReference->Release();
+		}
+		return *this;
+	}
+
+	FORCEINLINE ReferencedType* operator->() const
+	{
+		return Reference;
+	}
+
+	FORCEINLINE operator ReferenceType() const
+	{
+		return Reference;
+	}
+
+	FORCEINLINE ReferencedType** GetInitReference()
+	{
+		*this = nullptr;
+		return &Reference;
+	}
+
+	FORCEINLINE ReferencedType* GetReference() const
+	{
+		return Reference;
+	}
+
+	FORCEINLINE friend bool IsValidRef(const RefCountPtr& InReference)
+	{
+		return InReference.Reference != nullptr;
+	}
+
+	FORCEINLINE bool IsValid() const
+	{
+		return Reference != nullptr;
+	}
+
+	FORCEINLINE void SafeRelease()
+	{
+		*this = nullptr;
+	}
+
+	uint32 GetRefCount()
+	{
+		uint32 Result = 0;
+		if (Reference)
+		{
+			Result = Reference->GetRefCount();
+			check(Result > 0); // you should never have a zero ref count if there is a live ref counted pointer (*this is live)
+		}
+		return Result;
+	}
+
+	FORCEINLINE void Swap(RefCountPtr& InPtr) // this does not change the reference count, and so is faster
+	{
+		ReferencedType* OldReference = Reference;
+		Reference = InPtr.Reference;
+		InPtr.Reference = OldReference;
+	}
+
+	void Serialize(FArchive& Ar)
+	{
+		ReferenceType PtrReference = Reference;
+		Ar << PtrReference;
+		if (Ar.IsLoading())
+		{
+			*this = PtrReference;
+		}
+	}
+
+private:
+
+	ReferencedType* Reference;
+
+	template <typename OtherType>
+	friend class RefCountPtr;
+
+public:
+	FORCEINLINE bool operator==(const RefCountPtr& B) const
+	{
+		return GetReference() == B.GetReference();
+	}
+
+	FORCEINLINE bool operator==(ReferencedType* B) const
+	{
+		return GetReference() == B;
+	}
+};
+
+//This defines a C++20 concept named BoolIdentityConcept. A concept is a way of specifying constraints that a template parameter must satisfy. Here, BoolIdentityConcept ensures that a boolean constant B is true.
+template <bool B>
+concept BoolIdentityConcept = B;
+//The requires keyword in C++20 specifies constraints in template functions.
+//!!(__VA_ARGS__)is a way to cast any condition to a boolean value(true or false).
+//BoolIdentityConcept<true> ensures the concept always resolves to true (probably to enforce compile - time checks).
+//MakeRefCount is only instantiated if the condition provided in the macro is satisfied.
+
+//if T is not an array , then the concept is satisfied.
+//then it will compile
+#define REQUIRED(...) > requires (!!(__VA_ARGS__)) && BoolIdentityConcept<true
+template <
+	typename T,
+	typename... TArgs
+	REQUIRED(!std::is_array_v<T>)
+>
+
+
+FORCEINLINE RefCountPtr<T> MakeRefCount(TArgs&&... Args)
+{
+	return RefCountPtr<T>(new T(Forward<TArgs>(Args)...));
+}

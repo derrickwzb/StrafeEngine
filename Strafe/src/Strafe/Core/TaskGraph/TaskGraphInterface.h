@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Strafe/Core/Utils/Windows/WindowsPlatformTypes.h"
+#include "Strafe/Core/Utils/Windows/WindowsEvent.h"
 #include <vector>
 
 #define FORCEINLINE __forceinline	
@@ -173,3 +174,105 @@ namespace SubsequentsModeEnum
 
 //convenience typedef for an array of graph events
 //typedef std::vector<FGraphEventRef> FGraphEventArray;
+
+//interface to the task graph system
+class TaskGraphInterface
+{
+	//friend class BaseGraphTask;
+
+
+	//internal function to queue a task 
+	//either a named thread for a threadlocked task or anythread for a task that is to run on a worker thread
+	virtual void QueueTask(class FBaseGraphTask* Task, bool WakeUpWorker, NamedThreadsEnum::Type ThreadToExecuteOn, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread) = 0;
+
+public:
+	virtual ~TaskGraphInterface() {}	
+
+	//startup , shut down and singleton api
+	//@todo : change to dependency injection later on, should not be a big deal
+
+	//explicit start call for the system. The ordinary singleton pattern is not used because internal threads start asking for the singleton before the constructor has returned.
+	static void Startup(int32 NumThreads);
+
+	//explicit start call to shutdown the system. this is unlikely to work unless the system is idle
+	static void Shutdown();
+
+	//check to see if the system is running
+	static bool IsRunning();
+
+	//get the singleton instance
+	static TaskGraphInterface& Get();
+
+	//return the current thread type if known
+	virtual NamedThreadsEnum::Type GetCurrentThreadIfKnown(bool LocalQueue = false) = 0;
+
+	//return true if the current thread is known
+	virtual bool IsCurrentThreadKnown() = 0;
+
+	//Return the number of worker (non named) threads per priority set
+	//this is useful to determine how many tasks to split a job into
+	virtual int32 GetNumWorkerThreads() = 0;
+
+	//return the number of foreground worker threads. 
+	//return the number of high priority worker threads if any
+	virtual int32 GetNumForegroundThreads() = 0;
+
+	//retun the number of background worker threads
+	virtual int32 GetNumBackgroundThreads() = 0;
+
+	//return true if the given named thread is processing tasks, this is only a "guess" if you ask for a thread other than yourself because that can change before the function changes.
+	virtual bool IsThreadProcessingTasks(NamedThreadsEnum::Type ThreadToCheck) = 0;
+
+	//External ThreadAPI
+
+	//one time call that introduces and external thread to the task graph system. it just sets up the tls info
+	virtual void AttachToThread(NamedThreadsEnum::Type CurrentThread) = 0;
+
+	//Requests that a named thread, which must be this thread, run until idle, then return
+	virtual uint64 ProcessThreadUntilIdle(NamedThreadsEnum::Type CurrentThread) = 0;
+
+	//Requests that a named thread which must be this thread , run until an explicit return is received, then return
+	virtual void ProcessThreadUntilRequestReturn(NamedThreadsEnum::Type CurrentThread) = 0;
+
+	//request that the given thread stop when it is idle
+	virtual void RequestReturn(NamedThreadsEnum::Type CurrentThread) = 0;
+
+
+
+	//Todo
+	//requests that a named thread, which must be this thread, run until a list of tasks is complete.
+	//virtual void WaitUntilTasksComplete(const GraphEventArray& Tasks, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread) = 0;
+
+	//when a set of tasks complete, fire a scoped event
+	//virtual void TriggerEventWhenTasksComplete(GenericEvent* Event,const GraphEventArray& Tasks, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread, NamedThreadsEnum::Type TriggerThread = NamedThreadsEnum::AnyHiPriThreadHiPriTask) = 0;
+	
+	//requests that a named thread, which must be this thread, run until a task is complete
+	//void WaitUntilTaskCompletes(const GraphEventRef& Task, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
+	//{
+	//	WaitUntilTasksComplete({ Task }, CurrentThreadIfKnown);
+	//}
+
+	//void WaitUntilTaskCompletes(GraphEventRef&& Task, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
+	//{
+	//	WaitUntilTasksComplete({ MoveTemp(Task) }, CurrentThreadIfKnown);
+	//}
+
+	////when a task completes, fire a scoped event
+	//void TriggerEventWhenTaskCompletes(GenericEvent* Event, const GraphEventRef& Task, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread, NamedThreadsEnum::Type TriggerThread = NamedThreadsEnum::AnyHiPriThreadHiPriTask)
+	//{
+	//	GraphEventArray Prerequistes;
+	//	Prerequistes.Add(Task);
+	//	TriggerEventWhenTasksComplete(InEvent, Prerequistes, CurrentThreadIfKnown, TriggerThread);
+	//}
+
+	//virtual BaseGraphTask* FindWork(NamedThreadsEnum::Type ThreadInNeed) = 0;
+
+	//virtual void StallForTuning(int32 Index, bool Stall) = 0;
+
+	////Delegates for shutdown
+	//virtual void AddShutdownCallback(std::function<void()> Callback) = 0;
+
+	//virtual void WakeNamedThread(NamedThreadsEnum::Type ThreadToWake) = 0;
+	//
+
+};
