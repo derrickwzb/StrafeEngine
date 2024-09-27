@@ -2,6 +2,7 @@
 
 #include "Strafe/Core/Utils/Windows/WindowsPlatformTypes.h"
 #include "Strafe/Core/Utils/Windows/WindowsEvent.h"
+#include "Strafe/Core/Utils/Windows/WindowsPlatformAtomics.h"
 #include <vector>
 
 #define FORCEINLINE __forceinline	
@@ -178,12 +179,12 @@ namespace SubsequentsModeEnum
 //interface to the task graph system
 class TaskGraphInterface
 {
-	//friend class BaseGraphTask;
+	friend class BaseGraphTask;
 
 
 	//internal function to queue a task 
 	//either a named thread for a threadlocked task or anythread for a task that is to run on a worker thread
-	virtual void QueueTask(class FBaseGraphTask* Task, bool WakeUpWorker, NamedThreadsEnum::Type ThreadToExecuteOn, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread) = 0;
+	virtual void QueueTask(class BaseGraphTask* Task, bool WakeUpWorker, NamedThreadsEnum::Type ThreadToExecuteOn, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread) = 0;
 
 public:
 	virtual ~TaskGraphInterface() {}	
@@ -274,5 +275,96 @@ public:
 
 	//virtual void WakeNamedThread(NamedThreadsEnum::Type ThreadToWake) = 0;
 	//
+
+};
+
+//we do not need to worry about memory allocation now, only if extra performance boost then i will do a custom memory allocator for linear allocation
+
+//base class for all tasks
+//tasks go through a very specific life stage progression
+class BaseGraphTask
+{
+protected:
+	//constructor
+	BaseGraphTask(int32 pNumberOfPrerequisitesOutstanding)
+		: ThreadToExecuteOn(NamedThreadsEnum::AnyThread)
+		, NumberOfPrerequisitesOutstanding(pNumberOfPrerequisitesOutstanding + 1) // +1 is not a prerequisite, it isa  lock to prevent it from executing while it is getting prerequisites, once it is safe to execute, call PrerequisitesComplete
+	{
+
+	}
+
+	//sets the desired execution thread,. this is not a part of the constructor because this information mnay not be known yet during construction
+	void SetThreadToExecuteOn(NamedThreadsEnum::Type pThreadToExecuteOn)
+	{
+		ThreadToExecuteOn = pThreadToExecuteOn;
+	}
+
+	//indicates that the prerequisites are set up and the task can be executed aas soon as the prerequisites are complete
+	void PrerequisitesComplete(NamedThreadsEnum::Type CurrentThread, int32 NumAlreadyFinishedPrequistes, bool bUnlock = true)
+	{
+		int32 NumToSub = NumAlreadyFinishedPrequistes + (bUnlock ? 1 : 0); // the +1 is for the lock we set up in the constructor
+		if (WindowsPlatformAtomics::cInterlockedAdd(&NumberOfPrerequisitesOutstanding, -NumToSub) == NumToSub)
+		{
+			bool WakeUpWorker = true;
+			QueueTask(CurrentThread, WakeUpWorker);
+		}
+	}
+
+	//destructor 
+	virtual ~BaseGraphTask() {}
+
+	//an indication that a prerequisite has been complete. reduces the number of prerequisites by one and if no prerequisites are outstanding, it queues the task for execution.
+	void ConditionalQueueTask(NamedThreadsEnum::Type CurrentThread, bool& bWakeUpWorker)
+	{
+		if (WindowsPlatformAtomics::cInterlockedDecrement(&NumberOfPrerequisitesOutstanding) == 0)
+		{
+			QueueTask(CurrentThread, bWakeUpWorker);
+			bWakeUpWorker = true;
+		}
+	}
+
+	NamedThreadsEnum::Type GetThreadToExecuteOn() const
+	{
+		return ThreadToExecuteOn;
+	}
+
+private:
+	/*friend class FNamedTaskThread;
+	friend class FTaskThreadBase;
+	friend class FTaskThreadAnyThread;
+	friend class FGraphEvent;
+	friend class FTaskGraphImplementation;*/
+
+	//subclass api
+	//virtual call to actually execute the task. this will also call the destructor and free any memory if deleteoncompletion is set to true
+	virtual void ExecuteTask(std::vector<BaseGraphTask*>& NewTasks, NamedThreadsEnum::Type CurrentThread, bool bDeleteOnCompletion) = 0;
+
+	/**
+	*	Virtual call to actually delete the task any memory.
+	**/
+	virtual void DeleteTask() = 0;
+
+	// API called from other parts of the system
+
+	//called by the system to execute this task after it has been removed from an internal queue
+	//just pass off tot he virtual execute task method
+	FORCEINLINE void Execute(std::vector<BaseGraphTask*>& NewTasks, NamedThreadsEnum::Type CurrentThread, bool bDeleteOnCompletion)
+	{
+			ExecuteTask(NewTasks, CurrentThread, bDeleteOnCompletion);
+	}
+
+	//internal use
+	
+	//queues the task for execution
+	void QueueTask(NamedThreadsEnum::Type CurrentThread, bool WakeUpWorker)
+	{
+		TaskGraphInterface::Get().QueueTask(this, WakeUpWorker, ThreadToExecuteOn, CurrentThread);
+	}
+
+
+	/**	Thread to execute on, can be ENamedThreads::AnyThread to execute on any unnamed thread **/
+	NamedThreadsEnum::Type			ThreadToExecuteOn;
+	/**	Number of prerequisites outstanding. When this drops to zero, the thread is queued for execution.  **/
+	volatile int32		NumberOfPrerequisitesOutstanding;
 
 };

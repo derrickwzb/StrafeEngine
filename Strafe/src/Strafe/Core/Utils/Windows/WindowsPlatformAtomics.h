@@ -15,183 +15,183 @@ struct WindowsPlatformAtomics
 	static_assert(sizeof(int32) == sizeof(long) && alignof(int32) == alignof(long), "int32 must be compatible with long");
 	static_assert(sizeof(int64) == sizeof(long long) && alignof(int64) == alignof(long long), "int64 must be compatible with long long");
 
-	static FORCEINLINE int8 InterlockedIncrement(volatile int8* Value)
+	static FORCEINLINE int8 cInterlockedIncrement(volatile int8* Value)
 	{
 		return (int8)::_InterlockedExchangeAdd8((char*)Value, 1) + 1;
 	}
 
-	static FORCEINLINE int16 InterlockedIncrement(volatile int16* Value)
+	static FORCEINLINE int16 cInterlockedIncrement(volatile int16* Value)
 	{
 		return (int16)::_InterlockedIncrement16((short*)Value);
 	}
 
-	static FORCEINLINE int32 InterlockedIncrement(volatile int32* Value)
+	static FORCEINLINE int32 cInterlockedIncrement(volatile int32* Value)
 	{
 		return (int32)::_InterlockedIncrement((long*)Value);
 	}
 
-	static FORCEINLINE int64 InterlockedIncrement(volatile int64* Value)
+	static FORCEINLINE int64 cInterlockedIncrement(volatile int64* Value)
 	{
 
 		return (int64)::_InterlockedIncrement64((long long*)Value);
 
 	}
 
-	static FORCEINLINE int8 InterlockedDecrement(volatile int8* Value)
+	static FORCEINLINE int8 cInterlockedDecrement(volatile int8* Value)
 	{
 		return (int8)::_InterlockedExchangeAdd8((char*)Value, -1) - 1;
 	}
 
-	static FORCEINLINE int16 InterlockedDecrement(volatile int16* Value)
+	static FORCEINLINE int16 cInterlockedDecrement(volatile int16* Value)
 	{
 		return (int16)::_InterlockedDecrement16((short*)Value);
 	}
 
-	static FORCEINLINE int32 InterlockedDecrement(volatile int32* Value)
+	static FORCEINLINE int32 cInterlockedDecrement(volatile int32* Value)
 	{
 		return (int32)::_InterlockedDecrement((long*)Value);
 	}
 
-	static FORCEINLINE int64 InterlockedDecrement(volatile int64* Value)
+	static FORCEINLINE int64 cInterlockedDecrement(volatile int64* Value)
 	{
 
 		return (int64)::_InterlockedDecrement64((long long*)Value);
 
 	}
 
-	static FORCEINLINE int8 InterlockedAdd(volatile int8* Value, int8 Amount)
+	static FORCEINLINE int8 cInterlockedAdd(volatile int8* Value, int8 Amount)
 	{
 		return (int8)::_InterlockedExchangeAdd8((char*)Value, (char)Amount);
 	}
 
-	static FORCEINLINE int16 InterlockedAdd(volatile int16* Value, int16 Amount)
+	static FORCEINLINE int16 cInterlockedAdd(volatile int16* Value, int16 Amount)
 	{
 		return (int16)::_InterlockedExchangeAdd16((short*)Value, (short)Amount);
 	}
 
-	static FORCEINLINE int32 InterlockedAdd(volatile int32* Value, int32 Amount)
+	static FORCEINLINE int32 cInterlockedAdd(volatile int32* Value, int32 Amount)
 	{
 		return (int32)::_InterlockedExchangeAdd((long*)Value, (long)Amount);
 	}
 
-	static FORCEINLINE int64 InterlockedAdd(volatile int64* Value, int64 Amount)
+	static FORCEINLINE int64 cInterlockedAdd(volatile int64* Value, int64 Amount)
 	{
 
 		return (int64)::_InterlockedExchangeAdd64((int64*)Value, (int64)Amount);
 
 	}
 
-	static FORCEINLINE int8 InterlockedExchange(volatile int8* Value, int8 Exchange)
+	static FORCEINLINE int8 cInterlockedExchange(volatile int8* Value, int8 Exchange)
 	{
 		return (int8)::_InterlockedExchange8((char*)Value, (char)Exchange);
 	}
 
-	static FORCEINLINE int16 InterlockedExchange(volatile int16* Value, int16 Exchange)
+	static FORCEINLINE int16 cInterlockedExchange(volatile int16* Value, int16 Exchange)
 	{
 		return (int16)::_InterlockedExchange16((short*)Value, (short)Exchange);
 	}
 
-	static FORCEINLINE int32 InterlockedExchange(volatile int32* Value, int32 Exchange)
+	static FORCEINLINE int32 cInterlockedExchange(volatile int32* Value, int32 Exchange)
 	{
 		return (int32)::_InterlockedExchange((long*)Value, (long)Exchange);
 	}
 
-	static FORCEINLINE int64 InterlockedExchange(volatile int64* Value, int64 Exchange)
+	static FORCEINLINE int64 cInterlockedExchange(volatile int64* Value, int64 Exchange)
 	{
 
 		return (int64)::_InterlockedExchange64((long long*)Value, (long long)Exchange);
 
 	}
 
-	static FORCEINLINE void* InterlockedExchangePtr(void* volatile* Dest, void* Exchange)
+	static FORCEINLINE void* cInterlockedExchangePtr(void* volatile* Dest, void* Exchange)
 	{
 
 
 		return ::_InterlockedExchangePointer(Dest, Exchange);
 	}
 
-	static FORCEINLINE int8 InterlockedCompareExchange(volatile int8* Dest, int8 Exchange, int8 Comparand)
+	static FORCEINLINE int8 cInterlockedCompareExchange(volatile int8* Dest, int8 Exchange, int8 Comparand)
 	{
 		return (int8)::_InterlockedCompareExchange8((char*)Dest, (char)Exchange, (char)Comparand);
 	}
 
-	static FORCEINLINE int16 InterlockedCompareExchange(volatile int16* Dest, int16 Exchange, int16 Comparand)
+	static FORCEINLINE int16 cInterlockedCompareExchange(volatile int16* Dest, int16 Exchange, int16 Comparand)
 	{
 		return (int16)::_InterlockedCompareExchange16((short*)Dest, (short)Exchange, (short)Comparand);
 	}
 
-	static FORCEINLINE int32 InterlockedCompareExchange(volatile int32* Dest, int32 Exchange, int32 Comparand)
+	static FORCEINLINE int32 cInterlockedCompareExchange(volatile int32* Dest, int32 Exchange, int32 Comparand)
 	{
 		return (int32)::_InterlockedCompareExchange((long*)Dest, (long)Exchange, (long)Comparand);
 	}
 
-	static FORCEINLINE int64 InterlockedCompareExchange(volatile int64* Dest, int64 Exchange, int64 Comparand)
+	static FORCEINLINE int64 cInterlockedCompareExchange(volatile int64* Dest, int64 Exchange, int64 Comparand)
 	{
 
 
 		return (int64)::_InterlockedCompareExchange64(Dest, Exchange, Comparand);
 	}
 
-	static FORCEINLINE int8 InterlockedAnd(volatile int8* Value, const int8 AndValue)
+	static FORCEINLINE int8 cInterlockedAnd(volatile int8* Value, const int8 AndValue)
 	{
 		return (int8)::_InterlockedAnd8((volatile char*)Value, (char)AndValue);
 	}
 
-	static FORCEINLINE int16 InterlockedAnd(volatile int16* Value, const int16 AndValue)
+	static FORCEINLINE int16 cInterlockedAnd(volatile int16* Value, const int16 AndValue)
 	{
 		return (int16)::_InterlockedAnd16((volatile short*)Value, (short)AndValue);
 	}
 
-	static FORCEINLINE int32 InterlockedAnd(volatile int32* Value, const int32 AndValue)
+	static FORCEINLINE int32 cInterlockedAnd(volatile int32* Value, const int32 AndValue)
 	{
 		return (int32)::_InterlockedAnd((volatile long*)Value, (long)AndValue);
 	}
 
-	static FORCEINLINE int64 InterlockedAnd(volatile int64* Value, const int64 AndValue)
+	static FORCEINLINE int64 cInterlockedAnd(volatile int64* Value, const int64 AndValue)
 	{
 
 		return (int64)::_InterlockedAnd64((volatile long long*)Value, (long long)AndValue);
 
 	}
 
-	static FORCEINLINE int8 InterlockedOr(volatile int8* Value, const int8 OrValue)
+	static FORCEINLINE int8 cInterlockedOr(volatile int8* Value, const int8 OrValue)
 	{
 		return (int8)::_InterlockedOr8((volatile char*)Value, (char)OrValue);
 	}
 
-	static FORCEINLINE int16 InterlockedOr(volatile int16* Value, const int16 OrValue)
+	static FORCEINLINE int16 cInterlockedOr(volatile int16* Value, const int16 OrValue)
 	{
 		return (int16)::_InterlockedOr16((volatile short*)Value, (short)OrValue);
 	}
 
-	static FORCEINLINE int32 InterlockedOr(volatile int32* Value, const int32 OrValue)
+	static FORCEINLINE int32 cInterlockedOr(volatile int32* Value, const int32 OrValue)
 	{
 		return (int32)::_InterlockedOr((volatile long*)Value, (long)OrValue);
 	}
 
-	static FORCEINLINE int64 InterlockedOr(volatile int64* Value, const int64 OrValue)
+	static FORCEINLINE int64 cInterlockedOr(volatile int64* Value, const int64 OrValue)
 	{
 
 		return (int64)::_InterlockedOr64((volatile long long*)Value, (long long)OrValue);
 
 	}
 
-	static FORCEINLINE int8 InterlockedXor(volatile int8* Value, const int8 XorValue)
+	static FORCEINLINE int8 cInterlockedXor(volatile int8* Value, const int8 XorValue)
 	{
 		return (int8)::_InterlockedXor8((volatile char*)Value, (char)XorValue);
 	}
 
-	static FORCEINLINE int16 InterlockedXor(volatile int16* Value, const int16 XorValue)
+	static FORCEINLINE int16 cInterlockedXor(volatile int16* Value, const int16 XorValue)
 	{
 		return (int16)::_InterlockedXor16((volatile short*)Value, (short)XorValue);
 	}
 
-	static FORCEINLINE int32 InterlockedXor(volatile int32* Value, const int32 XorValue)
+	static FORCEINLINE int32 cInterlockedXor(volatile int32* Value, const int32 XorValue)
 	{
 		return (int32)::_InterlockedXor((volatile long*)Value, (int32)XorValue);
 	}
 
-	static FORCEINLINE int64 InterlockedXor(volatile int64* Value, const int64 XorValue)
+	static FORCEINLINE int64 cInterlockedXor(volatile int64* Value, const int64 XorValue)
 	{
 
 		return (int64)::_InterlockedXor64((volatile long long*)Value, (long long)XorValue);
@@ -200,22 +200,22 @@ struct WindowsPlatformAtomics
 
 	static FORCEINLINE int8 AtomicRead(volatile const int8* Src)
 	{
-		return InterlockedCompareExchange((int8*)Src, 0, 0);
+		return cInterlockedCompareExchange((int8*)Src, 0, 0);
 	}
 
 	static FORCEINLINE int16 AtomicRead(volatile const int16* Src)
 	{
-		return InterlockedCompareExchange((int16*)Src, 0, 0);
+		return cInterlockedCompareExchange((int16*)Src, 0, 0);
 	}
 
 	static FORCEINLINE int32 AtomicRead(volatile const int32* Src)
 	{
-		return InterlockedCompareExchange((int32*)Src, 0, 0);
+		return cInterlockedCompareExchange((int32*)Src, 0, 0);
 	}
 
 	static FORCEINLINE int64 AtomicRead(volatile const int64* Src)
 	{
-		return InterlockedCompareExchange((int64*)Src, 0, 0);
+		return cInterlockedCompareExchange((int64*)Src, 0, 0);
 	}
 
 	static FORCEINLINE int8 AtomicRead_Relaxed(volatile const int8* Src)
@@ -285,7 +285,7 @@ struct WindowsPlatformAtomics
 	
 
 
-	static FORCEINLINE void* InterlockedCompareExchangePointer(void* volatile* Dest, void* Exchange, void* Comparand)
+	static FORCEINLINE void* cInterlockedCompareExchangePointer(void* volatile* Dest, void* Exchange, void* Comparand)
 	{
 		return ::_InterlockedCompareExchangePointer(Dest, Exchange, Comparand);
 	}
