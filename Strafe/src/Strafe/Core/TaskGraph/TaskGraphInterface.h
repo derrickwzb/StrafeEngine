@@ -303,7 +303,7 @@ protected:
 	void PrerequisitesComplete(NamedThreadsEnum::Type CurrentThread, int32 NumAlreadyFinishedPrequistes, bool bUnlock = true)
 	{
 		int32 NumToSub = NumAlreadyFinishedPrequistes + (bUnlock ? 1 : 0); // the +1 is for the lock we set up in the constructor
-		if (WindowsPlatformAtomics::cInterlockedAdd(&NumberOfPrerequisitesOutstanding, -NumToSub) == NumToSub)
+		if (NumberOfPrerequisitesOutstanding.fetch_sub(NumToSub) == NumToSub) // check results @TODO
 		{
 			bool WakeUpWorker = true;
 			QueueTask(CurrentThread, WakeUpWorker);
@@ -316,7 +316,7 @@ protected:
 	//an indication that a prerequisite has been complete. reduces the number of prerequisites by one and if no prerequisites are outstanding, it queues the task for execution.
 	void ConditionalQueueTask(NamedThreadsEnum::Type CurrentThread, bool& bWakeUpWorker)
 	{
-		if (WindowsPlatformAtomics::cInterlockedDecrement(&NumberOfPrerequisitesOutstanding) == 0)
+		if (NumberOfPrerequisitesOutstanding.fetch_sub(1) == 0)
 		{
 			QueueTask(CurrentThread, bWakeUpWorker);
 			bWakeUpWorker = true;
@@ -365,6 +365,6 @@ private:
 	/**	Thread to execute on, can be ENamedThreads::AnyThread to execute on any unnamed thread **/
 	NamedThreadsEnum::Type			ThreadToExecuteOn;
 	/**	Number of prerequisites outstanding. When this drops to zero, the thread is queued for execution.  **/
-	volatile int32		NumberOfPrerequisitesOutstanding;
-
+	//i think this is a better approach for cross platform atomic operations but for now i dont give a fuck let it be messy
+	std::atomic<signed int>		NumberOfPrerequisitesOutstanding;
 };

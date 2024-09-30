@@ -27,11 +27,11 @@ public:
 
 	inline uint32 AddRef() const
 	{
-		return uint32(WindowsPlatformAtomics::InterlockedIncrement(&NumRefs));
+		return uint32(NumRefs.fetch_add(1));
 	}
 	inline uint32 Release() const
 	{
-		const int32 Refs = WindowsPlatformAtomics::InterlockedDecrement(&NumRefs);
+		const int32 Refs = NumRefs.fetch_sub(1);
 		if (Refs == 0)
 		{
 			delete this;
@@ -45,7 +45,7 @@ public:
 		return uint32(NumRefs);
 	}
 private:
-	mutable int32 NumRefs = 0;
+	mutable std::atomic<int32> NumRefs = 0;
 };
 
 /**
@@ -85,7 +85,7 @@ private:
 
 
 /**
- * Like FRefCountedObject, but internal ref count is thread safe
+ * Like RefCountedObject, but internal ref count is thread safe
  */
 class ThreadSafeRefCountedObject
 {
@@ -96,11 +96,11 @@ public:
 	ThreadSafeRefCountedObject& operator=(const ThreadSafeRefCountedObject& Rhs) = delete;
 	uint32 AddRef() const
 	{
-		return uint32(WindowsPlatformAtomics::InterlockedIncrement(&NumRefs)) // Increment and fetch the new value);
+		return uint32(NumRefs.fetch_add(1)) // Increment and fetch the new value);
 	}
 	uint32 Release() const
 	{
-		uint32 Refs = uint32(WindowsPlatformAtomics::InterlockedDecrement(&NumRefs));  // Decrement and fetch the new value);
+		uint32 Refs = uint32(NumRefs.fetch_sub(1));  // Decrement and fetch the new value);
 		if (Refs == 0)
 		{
 			delete this;
@@ -109,11 +109,12 @@ public:
 	}
 	uint32 GetRefCount() const
 	{
-		return uint32(WindowsPlatformAtomics::AtomicRead(&NumRefs));
+		return uint32(NumRefs.load());
 	}
 private:
 	/** Thread-safe counter */
-	mutable volatile int32 NumRefs;
+	//mutable volatile int32 NumRefs;
+	mutable std::atomic<int32> NumRefs;
 };
 
 /**
