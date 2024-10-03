@@ -3,7 +3,10 @@
 #include "Strafe/Core/Utils/Windows/WindowsPlatformTypes.h"
 #include "Strafe/Core/Utils/Windows/WindowsEvent.h"
 #include "Strafe/Core/Utils/Windows/WindowsPlatformAtomics.h"
+#include "Strafe/Core/TaskGraph/TaskGraphFwd.h"
+#include "Strafe/Core/Threading/Containers/LockFreeFixedSizeAllocator.h"
 #include <vector>
+#include <functional>
 
 #define FORCEINLINE __forceinline	
 
@@ -174,7 +177,7 @@ namespace SubsequentsModeEnum
 }
 
 //convenience typedef for an array of graph events
-//typedef std::vector<FGraphEventRef> FGraphEventArray;
+typedef std::vector<GraphEventRef> GraphEventArray;
 
 //interface to the task graph system
 class TaskGraphInterface
@@ -242,38 +245,38 @@ public:
 
 	//Todo
 	//requests that a named thread, which must be this thread, run until a list of tasks is complete.
-	//virtual void WaitUntilTasksComplete(const GraphEventArray& Tasks, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread) = 0;
+	virtual void WaitUntilTasksComplete(const GraphEventArray& Tasks, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread) = 0;
 
 	//when a set of tasks complete, fire a scoped event
-	//virtual void TriggerEventWhenTasksComplete(GenericEvent* Event,const GraphEventArray& Tasks, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread, NamedThreadsEnum::Type TriggerThread = NamedThreadsEnum::AnyHiPriThreadHiPriTask) = 0;
+	virtual void TriggerEventWhenTasksComplete(GenericEvent* Event,const GraphEventArray& Tasks, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread, NamedThreadsEnum::Type TriggerThread = NamedThreadsEnum::AnyHiPriThreadHiPriTask) = 0;
 	
 	//requests that a named thread, which must be this thread, run until a task is complete
-	//void WaitUntilTaskCompletes(const GraphEventRef& Task, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
-	//{
-	//	WaitUntilTasksComplete({ Task }, CurrentThreadIfKnown);
-	//}
+	void WaitUntilTaskCompletes(const GraphEventRef& Task, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
+	{
+		WaitUntilTasksComplete({ Task }, CurrentThreadIfKnown);
+	}
 
-	//void WaitUntilTaskCompletes(GraphEventRef&& Task, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
-	//{
-	//	WaitUntilTasksComplete({ MoveTemp(Task) }, CurrentThreadIfKnown);
-	//}
+	void WaitUntilTaskCompletes(GraphEventRef&& Task, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
+	{
+		WaitUntilTasksComplete({ std::move(Task) }, CurrentThreadIfKnown);
+	}
 
 	////when a task completes, fire a scoped event
-	//void TriggerEventWhenTaskCompletes(GenericEvent* Event, const GraphEventRef& Task, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread, NamedThreadsEnum::Type TriggerThread = NamedThreadsEnum::AnyHiPriThreadHiPriTask)
-	//{
-	//	GraphEventArray Prerequistes;
-	//	Prerequistes.Add(Task);
-	//	TriggerEventWhenTasksComplete(InEvent, Prerequistes, CurrentThreadIfKnown, TriggerThread);
-	//}
+	void TriggerEventWhenTaskCompletes(GenericEvent* Event, const GraphEventRef& Task, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread, NamedThreadsEnum::Type TriggerThread = NamedThreadsEnum::AnyHiPriThreadHiPriTask)
+	{
+		GraphEventArray Prerequistes;
+		Prerequistes.emplace_back(Task);
+		TriggerEventWhenTasksComplete(Event, Prerequistes, CurrentThreadIfKnown, TriggerThread);
+	}
 
-	//virtual BaseGraphTask* FindWork(NamedThreadsEnum::Type ThreadInNeed) = 0;
+	virtual BaseGraphTask* FindWork(NamedThreadsEnum::Type ThreadInNeed) = 0;
 
-	//virtual void StallForTuning(int32 Index, bool Stall) = 0;
+	virtual void StallForTuning(int32 Index, bool Stall) = 0;
 
-	////Delegates for shutdown
-	//virtual void AddShutdownCallback(std::function<void()> Callback) = 0;
+	//Delegates for shutdown
+	virtual void AddShutdownCallback(std::function<void()> Callback) = 0;
 
-	//virtual void WakeNamedThread(NamedThreadsEnum::Type ThreadToWake) = 0;
+	virtual void WakeNamedThread(NamedThreadsEnum::Type ThreadToWake) = 0;
 	//
 
 };
@@ -329,11 +332,11 @@ protected:
 	}
 
 private:
-	/*friend class FNamedTaskThread;
-	friend class FTaskThreadBase;
-	friend class FTaskThreadAnyThread;
-	friend class FGraphEvent;
-	friend class FTaskGraphImplementation;*/
+	//friend class FNamedTaskThread;
+	//friend class FTaskThreadBase;
+	//friend class FTaskThreadAnyThread;
+	friend class GraphEvent;
+	//friend class FTaskGraphImplementation;
 
 	//subclass api
 	//virtual call to actually execute the task. this will also call the destructor and free any memory if deleteoncompletion is set to true
@@ -367,4 +370,119 @@ private:
 	/**	Number of prerequisites outstanding. When this drops to zero, the thread is queued for execution.  **/
 	//i think this is a better approach for cross platform atomic operations but for now i dont give a fuck let it be messy
 	std::atomic<signed int>		NumberOfPrerequisitesOutstanding;
+};
+
+//a graphevent is a list of tasks wauting for something
+//these tasks are called the subsequents
+//a graph event is a prerequisite for each of its subsequents
+//graph events have a lifetime managed by ref counting
+class GraphEvent
+{
+public:
+	//a factory method to create a graph event
+	static GraphEventRef CreateGraphEvent();
+
+	//Attempts to a new subsequent task. If this event has already fired, false is returned and action must be taken to ensure that the task will still fire even though this event cannot be a prerequisite (because it is already finished).
+	bool AddSubsequent(class BaseGraphTask* Subsequent)
+	{
+		bool bSucceeded = SubsequentList.PushIfNotClosed(Subsequent);
+		if (bSucceeded)
+		{
+			//log that it is added
+		}
+		return bSucceeded;
+	}
+
+	//verification function to ensure that nobody was tried to add wait until;s outside of the context of executrion
+	void CheckDontCompleteUntilIsEmpty()
+	{
+		//break if !EventsToWaitFor.Num());
+	}
+
+	//delay the firing of this event until the given event fires.
+	//caution:this is only legal while executing the task associated with this event.
+	void DontCompleteUntil(GraphEventRef EventToWaitFor)
+	{
+		//break if !IsComplete()); // it is not legal to add a DontCompleteUntil after the event has been completed. Basically, this is only legal within a task function.
+		EventsToWaitFor.emplace_back(EventToWaitFor);
+		//log that event has been added
+	}
+
+	//"complete" the event. This grabs the list of subsequents and atomically closes it. then for each subsequent it reduces the number of prerequisites outstanding and if that 
+	//drops to zero, the task is queued.
+	void DispatchSubsequents(NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread);
+
+	//"complete" the event. This grabs the list of subsequents and atomically closes it. then for each subsequent it reduces the number of prerequisites outstanding and if that 
+	//drops to zero, the task is queued.
+
+	void DispatchSubsequents(std::vector<BaseGraphTask*>& NewTasks, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread, bool bInternal = false);
+
+	//determine if the event has been completed. this can be used to poll for completion
+	//caution if this returns false, thevent could still end up completeing before this function even returns.
+	//in other words, a false return does not mean that event is not yet completed
+	bool IsComplete() const
+	{
+		return SubsequentList.IsClosed();
+	}
+
+	//a convenient short version of wait until task completes
+	void Wait(NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
+	{
+		TaskGraphInterface::Get().WaitUntilTaskCompletes(*this, CurrentThreadIfKnown);
+	}
+
+private:
+	friend class RefCountPtr<GraphEvent>;
+	friend class LockFreeClassAllocator_TLSCache<GraphEvent, PLATFORM_CACHE_LINE_SIZE>;
+
+	//internal function to call the destructor and recycle a graph event
+	static void Recycle(GraphEvent* Event);
+	
+
+	//hidden constructor
+	GraphEvent()
+		: ThreadToDoGatherOn(NamedThreadsEnum::AnyHiPriThreadHiPriTask)
+	{
+	}
+
+	//destructor. verifies wer arent destroyign it prematurwl
+	~GraphEvent();
+
+public:
+
+	//increases the ref count
+	uint32 AddRef()
+	{
+		int32 refcount = ReferenceCount.fetch_add(1);
+		//check if ref count > 0
+		return refcount;
+	}
+
+	uint32 Release()
+	{
+		int32 refcount = ReferenceCount.fetch_sub(1);
+		//check if ref count >= 0
+		if (refcount == 1)
+		{
+			//recycle the event
+			Recycle(this);
+		}
+		return refcount;
+	}
+
+	uint32 GetRefCount() const
+	{
+		return ReferenceCount.load();
+	}
+
+private:
+
+	/** Threadsafe list of subsequents for the event **/
+	ClosableLockFreePointerListUnorderedSingleConsumer<BaseGraphTask, 0>	SubsequentList;
+	/** List of events to wait for until firing. This is not thread safe as it is only legal to fill it in within the context of an executing task. **/
+	GraphEventArray														EventsToWaitFor;
+	/** Number of outstanding references to this graph event **/
+	std::atomic<int32>														ReferenceCount;
+	NamedThreadsEnum::Type														ThreadToDoGatherOn;
+
 };
