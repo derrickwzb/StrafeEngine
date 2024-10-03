@@ -7,8 +7,16 @@
 #include "Strafe/Core/Threading/Containers/LockFreeFixedSizeAllocator.h"
 #include <vector>
 #include <functional>
+#include <utility>  // For std::forward
+#include <new>      // For placement new
 
 #define FORCEINLINE __forceinline	
+
+template<int32 Size, uint32 Alignment>
+struct TAlignedBytes
+{
+	alignas(Alignment) uint8 Pad[Size];
+};
 
 namespace NamedThreadsEnum
 {
@@ -486,3 +494,225 @@ private:
 	NamedThreadsEnum::Type														ThreadToDoGatherOn;
 
 };
+
+
+
+
+//tgraphtask
+//embeds a user defined task, as exemplified above, for doing the work and provides the functionality for setting up and handling prerequisites and subsequents
+template<typename TTask>
+class TGraphTask final : public BaseGraphTask
+{
+public:
+	//this is a helper class returned from the factory. it constructs the embedded task with a set of arguments and sets the task up and makes it ready to execute.
+	//the task may complete before these routines even return.
+	class FConstructor
+	{
+	public:
+		/** Passthrough internal task constructor and dispatch. Note! Generally speaking references will not pass through; use pointers */
+		template<typename...T>
+		GraphEventRef ConstructAndDispatchWhenReady(T&&... Args)
+		{
+			new ((void*)&Owner->TaskStorage) TTask(std::forward<T>(Args)...);
+			return Owner->Setup(Prerequisites, CurrentThreadIfKnown);
+		}
+
+		/** Passthrough internal task constructor and hold. */
+		template<typename...T>
+		TGraphTask* ConstructAndHold(T&&... Args)
+		{
+			new ((void*)&Owner->TaskStorage) TTask(std::forward<T>(Args)...);
+			return Owner->Hold(Prerequisites, CurrentThreadIfKnown);
+		}
+
+	private:
+		friend TGraphTask;
+
+		/** The task that created me to assist with embeded task construction and preparation. **/
+		TGraphTask* Owner;
+		/** The list of prerequisites. **/
+		const GraphEventArray* Prerequisites;
+		/** If known, the current thread.  ENamedThreads::AnyThread is also fine, and if that is the value, we will determine the current thread, as needed, via TLS. **/
+		NamedThreadsEnum::Type				CurrentThreadIfKnown;
+
+		/** Constructor, simply saves off the arguments for later use after we actually construct the embeded task. **/
+		FConstructor(TGraphTask* InOwner, const GraphEventArray* InPrerequisites, NamedThreadsEnum::Type InCurrentThreadIfKnown)
+			: Owner(InOwner)
+			, Prerequisites(InPrerequisites)
+			, CurrentThreadIfKnown(InCurrentThreadIfKnown)
+		{
+		}
+		/** Prohibited copy construction **/
+		FConstructor(const FConstructor& Other)
+		{
+			check(0);
+		}
+		/** Prohibited copy **/
+		void operator=(const FConstructor& Other)
+		{
+			check(0);
+		}
+	};
+
+	//factory to create a task and returnt he helper object to construct the embedded task and set it up for execution
+	static FConstructor CreateTask(const GraphEventArray* Prerequisites = NULL, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
+	{
+		GraphEventRef GraphEvent = TTask::GetSubsequentsMode() == SubsequentsModeEnum::FireAndForget ? NULL : GraphEvent::CreateGraphEvent();
+
+		int32 NumPrereq = Prerequisites ? Prerequisites->Num() : 0;
+		return FConstructor(new TGraphTask(std::move(GraphEvent), NumPrereq), Prerequisites, CurrentThreadIfKnown);
+	}
+
+	void Unlock(NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
+	{
+		/*TaskTrace::Launched(GetTraceId(), nullptr, Subsequents.IsValid(), ((TTask*)&TaskStorage)->GetDesiredThread(), sizeof(*this));*/
+
+		bool bWakeUpWorker = true;
+		ConditionalQueueTask(CurrentThreadIfKnown, bWakeUpWorker);
+	}
+
+	GraphEventRef GetCompletionEvent()
+	{
+		return Subsequents;
+	}
+private:
+	friend class FConstructor;
+	friend class GraphEvent;
+
+	//api derived from basegraphtask 
+	//virtual call to actually execute the task.
+	//executes, destroy the embedded task. dispatch the subsequents, destroy myself
+	void ExecuteTask(TArray<BaseGraphTask*>& NewTasks, NamedThreadsEnum::Type CurrentThread, bool bDeleteOnCompletion) override
+	{
+
+		// Fire and forget mode must not have subsequents
+		// Track subsequents mode must have subsequents
+
+		if (TTask::GetSubsequentsMode() == SubsequentsModeEnum::TrackSubsequents)
+		{
+			Subsequents->CheckDontCompleteUntilIsEmpty(); // we can only add wait for tasks while executing the task
+		}
+
+		TTask& Task = *(TTask*)&TaskStorage;
+		{
+			//TaskTrace::FTaskTimingEventScope TaskEventScope(GetTraceId());
+			//FScopeCycleCounter Scope(Task.GetStatId(), true);
+			Task.DoTask(CurrentThread, Subsequents);
+			Task.~TTask();
+			//checkThreadGraph(ENamedThreads::GetThreadIndex(CurrentThread) <= ENamedThreads::GetRenderThread() || FMemStack::Get().IsEmpty()); // you must mark and pop memstacks if you use them in tasks! Named threads are excepted.
+		}
+
+		TaskConstructed = false;
+
+		if (TTask::GetSubsequentsMode() == SubsequentsModeEnum::TrackSubsequents)
+		{
+			_mm_sfence();
+			Subsequents->DispatchSubsequents(NewTasks, CurrentThread, true);
+		}
+		else
+		{
+			// "fire and forget" tasks don't have an accompanying FGraphEvent that traces completion and destruction
+
+		}
+
+		if (bDeleteOnCompletion)
+		{
+			DeleteTask();
+		}
+	}
+
+	void DeleteTask() final override
+	{
+		delete this;
+	}
+
+	//internals
+
+	//private constructor , constructs the base class with the number of preq
+	TGraphTask(GraphEventRef InSubsequents, int32 NumberOfPrerequistitesOutstanding)
+		: BaseGraphTask(NumberOfPrerequistitesOutstanding)
+		, TaskConstructed(false)
+	{
+		Subsequents.Swap(InSubsequents);
+		//SetTraceId(Subsequents.IsValid() ? Subsequents->GetTraceId() : TaskTrace::GenerateTaskId());
+	}
+	//private destructor, just checks that the task appears to be completed
+	~TGraphTask() override
+	{
+		//check if !TaskConstructed);
+	}
+
+	//call from FConstructor to complete the setup process
+	//create the completed event
+	//set the thread to execute on based on the embedded task
+	//attemp to add myself as a subsequent to each prerequisite
+	//tell the bease task that i am ready to start as soon as my prerequisites are ready.
+	void SetupPrereqs(const GraphEventArray* Prerequisites, NamedThreadsEnum::Type CurrentThreadIfKnown, bool bUnlock)
+	{
+		//check if !TaskConstructed);
+		TaskConstructed = true;
+		TTask& Task = *(TTask*)&TaskStorage;
+		SetThreadToExecuteOn(Task.GetDesiredThread());
+		int32 AlreadyCompletedPrerequisites = 0;
+		if (Prerequisites)
+		{
+			for (int32 Index = 0; Index < Prerequisites->Num(); Index++)
+			{
+				GraphEvent* Prerequisite = (*Prerequisites)[Index];
+				if (Prerequisite == nullptr || !Prerequisite->AddSubsequent(this))
+				{
+					AlreadyCompletedPrerequisites++;
+				}
+			}
+		}
+		PrerequisitesComplete(CurrentThreadIfKnown, AlreadyCompletedPrerequisites, bUnlock);
+	}
+
+
+	//call from FConstructor to complete the setup process
+	//create the completed event
+	//set the thread to execute on based on the embedded task
+	///attempt to add myself as a subsequent to each prerequisite
+	//tell the base task that i am ready to start as soon as my prerequisites are ready
+	GraphEventRef Setup(const GraphEventArray* Prerequisites = NULL, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
+	{
+		/*TaskTrace::Launched(GetTraceId(), nullptr, Subsequents.IsValid(), ((TTask*)&TaskStorage)->GetDesiredThread(), sizeof(*this));*/
+
+		FraphEventRef ReturnedEventRef = Subsequents; // very important so that this doesn't get destroyed before we return
+		SetupPrereqs(Prerequisites, CurrentThreadIfKnown, true);
+		return ReturnedEventRef;
+	}
+
+	
+	//Call from FConstructor to complete the setup process, but doesn't allow the task to dispatch yet
+	//Create the completed event
+	//Set the thread to execute on based on the embedded task
+	//Attempt to add myself as a subsequent to each prerequisite
+	//Tell the base task that I am ready to start as soon as my prerequisites are ready.
+	 
+	TGraphTask* Hold(const GraphEventArray* Prerequisites = NULL, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
+	{
+		//TaskTrace::Created(GetTraceId(), sizeof(*this));
+
+		SetupPrereqs(Prerequisites, CurrentThreadIfKnown, false);
+		return this;
+	}
+
+	//Factory to create a gather task which assumes the given subsequent list from some other tasks.
+	static FConstructor CreateTask(GraphEventRef SubsequentsToAssume, const GraphEventArray* Prerequisites = NULL, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
+	{
+		return FConstructor(new TGraphTask(SubsequentsToAssume, Prerequisites ? Prerequisites->Num() : 0), Prerequisites, CurrentThreadIfKnown);
+	}
+
+	/** An aligned bit of storage to hold the embedded task **/
+	TAlignedBytes<sizeof(TTask), alignof(TTask)> TaskStorage;
+
+	/** Used to sanity check the state of the object **/
+	bool						TaskConstructed;
+	/** A reference counted pointer to the completion event which lists the tasks that have me as a prerequisite. **/
+	GraphEventRef				Subsequents;
+};
+
+
+// Returns a graph event that gets completed as soon as any of the given tasks gets completed
+GraphEventRef AnyTaskCompleted(const GraphEventArray& GraphEvents);
