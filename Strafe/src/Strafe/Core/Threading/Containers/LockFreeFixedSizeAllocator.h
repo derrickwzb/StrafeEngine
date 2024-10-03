@@ -204,3 +204,200 @@ class LockFreeFixedSizeAllocator_TLSCacheBase
 		/** Total number of blocks in the free list. */
 		TrackingCounter NumFree;
 };
+
+/**
+ * Thread safe, lock free pooling allocator of fixed size blocks that
+ * never returns free space until program shutdown.
+ * alignment isn't handled
+ */
+template<int32 SIZE, int TPaddingForCacheContention, typename TrackingCounter = NoopCounter, bool AllowDisablingOfTrim = false>
+class LockFreeFixedSizeAllocator
+{
+public:
+
+	/** Destructor, returns all memory via FMemory::Free **/
+	~LockFreeFixedSizeAllocator()
+	{
+		check(!NumUsed.GetValue());
+		Trim();
+	}
+
+	/**
+	 * Allocates a memory block of size SIZE.
+	 *
+	 * @return Pointer to the allocated memory.
+	 * @see Free
+	 */
+	void* Allocate()
+	{
+		NumUsed.Increment();
+		void* Memory = FreeList.Pop();
+		if (Memory)
+		{
+			NumFree.Decrement();
+		}
+		else
+		{
+			Memory = new char[SIZE];
+		}
+		return Memory;
+	}
+
+	/**
+	 * Puts a memory block previously obtained from Allocate() back on the free list for future use.
+	 *
+	 * @param Item The item to free.
+	 * @see Allocate
+	 */
+	void Free(void* Item)
+	{
+		NumUsed.Decrement();
+		FreeList.Push(Item);
+		NumFree.Increment();
+	}
+
+	/**
+	* Returns all free memory to the heap
+	*/
+	void Trim()
+	{
+		/*if (AllowDisablingOfTrim)
+		{
+			if (active)
+			{
+				return;
+			}
+		}*/
+		while (void* Mem = FreeList.Pop())
+		{
+			delete[] static_cast<char*>(Mem)
+			NumFree.Decrement();
+		}
+	}
+
+	/**
+	 * Gets the number of allocated memory blocks that are currently in use.
+	 *
+	 * @return Number of used memory blocks.
+	 * @see GetNumFree
+	 */
+	const TTrackingCounter& GetNumUsed() const
+	{
+		return NumUsed;
+	}
+
+	/**
+	 * Gets the number of allocated memory blocks that are currently unused.
+	 *
+	 * @return Number of unused memory blocks.
+	 * @see GetNumUsed
+	 */
+	const TTrackingCounter& GetNumFree() const
+	{
+		return NumFree;
+	}
+
+private:
+
+	/** Lock free list of free memory blocks. */
+	LockFreePointerListUnordered<void, TPaddingForCacheContention> FreeList;
+
+	/** Total number of blocks outstanding and not in the free list. */
+	TrackingCounter NumUsed;
+
+	/** Total number of blocks in the free list. */
+	TrackingCounter NumFree;
+};
+
+template<int32 SIZE, int PaddingForCacheContention, typename TrackingCounter = NoopCounter, bool AllowDisablingOfTrim = false>
+class LockFreeFixedSizeAllocator_TLSCache : public LockFreeFixedSizeAllocator_TLSCacheBase<SIZE, LockFreePointerListUnordered<void*, PaddingForCacheContention>, TrackingCounter, AllowDisablingOfTrim>
+{
+};
+
+/**
+ * Thread safe, lock free pooling allocator of memory for instances of T.
+ *
+ * Never returns free space until program shutdown.
+ */
+template<class T, int PaddingForCacheContention, bool AllowDisablingOfTrim = false>
+class LockFreeClassAllocator : private LockFreeFixedSizeAllocator<sizeof(T), PaddingForCacheContention, NoopCounter, AllowDisablingOfTrim>
+{
+public:
+	/**
+	 * Returns a memory block of size sizeof(T).
+	 *
+	 * @return Pointer to the allocated memory.
+	 * @see Free, New
+	 */
+	void* Allocate()
+	{
+		return LockFreeFixedSizeAllocator<sizeof(T), PaddingForCacheContention>::Allocate();
+	}
+
+	/**
+	 * Returns a new T using the default constructor.
+	 *
+	 * @return Pointer to the new object.
+	 * @see Allocate, Free
+	 */
+	T* New()
+	{
+		return new (Allocate()) T();
+	}
+
+	/**
+	 * Calls a destructor on Item and returns the memory to the free list for recycling.
+	 *
+	 * @param Item The item whose memory to free.
+	 * @see Allocate, New
+	 */
+	void Free(T* Item)
+	{
+		Item->~T();
+		LockFreeFixedSizeAllocator<sizeof(T), PaddingForCacheContention>::Free(Item);
+	}
+};
+
+/**
+ * Thread safe, lock free pooling allocator of memory for instances of T.
+ *
+ * Never returns free space until program shutdown.
+ */
+template<class T, int PaddingForCacheContention, bool AllowDisablingOfTrim = false>
+class LockFreeClassAllocator_TLSCache : private LockFreeFixedSizeAllocator_TLSCache<sizeof(T), PaddingForCacheContention, NoopCounter, AllowDisablingOfTrim>
+{
+public:
+	/**
+	 * Returns a memory block of size sizeof(T).
+	 *
+	 * @return Pointer to the allocated memory.
+	 * @see Free, New
+	 */
+	void* Allocate()
+	{
+		return LockFreeFixedSizeAllocator_TLSCache<sizeof(T), PaddingForCacheContention>::Allocate();
+	}
+
+	/**
+	 * Returns a new T using the default constructor.
+	 *
+	 * @return Pointer to the new object.
+	 * @see Allocate, Free
+	 */
+	T* New()
+	{
+		return new (Allocate()) T();
+	}
+
+	/**
+	 * Calls a destructor on Item and returns the memory to the free list for recycling.
+	 *
+	 * @param Item The item whose memory to free.
+	 * @see Allocate, New
+	 */
+	void Free(T* Item)
+	{
+		Item->~T();
+		LockFreeFixedSizeAllocator_TLSCache<sizeof(T), PaddingForCacheContention>::Free(Item);
+	}
+};
