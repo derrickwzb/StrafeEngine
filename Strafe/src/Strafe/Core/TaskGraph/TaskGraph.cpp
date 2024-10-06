@@ -160,6 +160,16 @@ class NamedTaskThread : public TaskThreadBase
 		//todo
 	}
 
+	virtual bool IsProcessingTasks(int32 QueueIndex)  override
+	{
+		
+		return !!Queue(QueueIndex).RecursionGuard;
+	}
+
+	virtual void WakeUp(int32 QueueIndex ) override
+	{
+		Queue(QueueIndex).StallRestartEvent->Trigger();
+	}
 private:
 
 	//grouping of the data for an individual queue
