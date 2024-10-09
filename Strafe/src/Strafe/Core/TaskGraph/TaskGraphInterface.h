@@ -340,7 +340,7 @@ protected:
 	}
 
 private:
-	//friend class FNamedTaskThread;
+	friend class NamedTaskThread;
 	//friend class FTaskThreadBase;
 	//friend class FTaskThreadAnyThread;
 	friend class GraphEvent;

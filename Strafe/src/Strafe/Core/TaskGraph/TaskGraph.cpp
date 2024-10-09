@@ -101,7 +101,7 @@ class TaskThreadBase : public Runnable
 	virtual void WakeUp(int32 QueueIndex = 0) = 0;
 	
 	//return true if this thread is processing tasks, this is only a guess if you ask for a thread other than yourself because that can change before the function returns
-	virtual bool IsProcessingTasks(int32 QueueIndex) const = 0;
+	virtual bool IsProcessingTasks(int32 QueueIndex) = 0;
 
 	//runnable api
 
@@ -152,17 +152,118 @@ protected:
 
 //namedtaskthread
 //a class for managing a named thread
-
 class NamedTaskThread : public TaskThreadBase
 {
 	virtual void ProcessTasksUntilQuit(int32 QueueIndex) override
 	{
-		//todo
+		//check(Queue(QueueIndex).StallRestartEvent); // make sure we are started up
+
+		Queue(QueueIndex).QuitForReturn = false;
+		//check(++Queue(QueueIndex).RecursionGuard == 1);
+		do
+		{
+			const bool bAllowStall = true;
+			ProcessTasksNamedThread(QueueIndex, bAllowStall);
+		} while (!Queue(QueueIndex).QuitForReturn && !Queue(QueueIndex).QuitForShutdown); 
+		//check (!--Queue(QueueIndex).RecursionGuard);
+	}
+
+	virtual uint64 ProcessTasksUntilIdle(int32 QueueIndex) override
+	{
+		//check(Queue(QueueIndex).StallRestartEvent); // make sure we are started up
+
+		Queue(QueueIndex).QuitForReturn = false;
+		//check(++Queue(QueueIndex).RecursionGuard == 1);
+		uint64 ProcessedTasks = ProcessTasksNamedThread(QueueIndex, false);
+		//check (!--Queue(QueueIndex).RecursionGuard);
+		return ProcessedTasks;
+	}
+
+	uint64 ProcessTasksNamedThread(int32 QueueIndex, bool AllowStall)
+	{
+		uint64 ProcessedTasks = 0;
+		bool CountAsStall = false;
+		const bool IsRenderThreadMainQueue = (NamedThreadsEnum::GetThreadIndex(ThreadId) == NamedThreadsEnum::ActualRenderingThread) && (QueueIndex == 0);
+		while (!Queue(QueueIndex).QuitForReturn)
+		{
+			//for use of rendering thread
+			const bool IsRenderThreadAndPolling = IsRenderThreadMainQueue && (RenderThreadPollPeriodMs >= 0);
+			const bool StallQueueAllowStall = AllowStall && !IsRenderThreadAndPolling;
+			BaseGraphTask* Task = Queue(QueueIndex).StallQueue.Pop(0, StallQueueAllowStall);
+			if (!Task)
+			{
+				if (AllowStall)
+				{
+					Queue(QueueIndex).StallRestartEvent->Wait(IsRenderThreadAndPolling ? RenderThreadPollPeriodMs : ((uint32)0xffffffff), CountAsStall);
+					if (Queue(QueueIndex).QuitForShutdown)
+					{
+						return ProcessedTasks;
+					}
+					continue;
+				}
+				else
+				{
+					break;
+					//we were asked to quit
+				}
+			}
+			else
+			{
+				Task->Execute(NewTasks, NamedThreadsEnum::Type(ThreadId | (QueueIndex << NamedThreadsEnum::QueueIndexShift)), true);
+				ProcessedTasks++;
+			}
+		}
+		return ProcessedTasks;
+	}
+
+	virtual void EnqueueFromThisThread(int32 QueueIndex, BaseGraphTask* Task) override
+	{
+		//TODO  check Task && Queue(QueueIndex).StallRestartEvent // make sure we are started up
+		uint32 PriIndex = NamedThreadsEnum::GetTaskPriority(Task->GetThreadToExecuteOn()) ? 0 : 1;
+		int32 ThreadToStart = Queue(QueueIndex).StallQueue.Push(Task, PriIndex);
+		//check(ThreadToStart < 0); // if I am stalled, then how can I be queueing a task?
+	}
+
+	virtual void RequestQuit(int32 QueueIndex) override
+	{
+		//this will not work on certain circumstances, you should not attempt to stop  threads unless they are known to be idle
+		if (!Queue(0).StallRestartEvent)
+		{
+			return;
+		}
+		if (QueueIndex == -1)
+		{
+			//we are shutting down
+			//check queue 0 and 1 for stall restart event @TODO
+			Queue(0).QuitForShutdown = true;
+			Queue(1).QuitForShutdown = true;
+			Queue(0).StallRestartEvent->Trigger();
+			Queue(1).StallRestartEvent->Trigger();
+		}
+		else
+		{
+			//@TODO check for current queue index stall restart event
+			Queue(QueueIndex).QuitForReturn = true;
+		}
+	}
+
+	virtual bool EnqueueFromOtherThread(int32 QueueIndex, BaseGraphTask* Task) override
+	{
+		//check if task exists and queue(index).slstall restart event exists
+		uint32 PrimaryIndex = NamedThreadsEnum::GetTaskPriority(Task->GetThreadToExecuteOn())? 0:1;
+		int32 ThreadToStart = Queue(QueueIndex).StallQueue.Push(Task, PrimaryIndex);
+
+		if (ThreadToStart >= 0)
+		{
+			//check thread to start  ==0
+			Queue(QueueIndex).StallRestartEvent->Trigger();
+			return true;
+		}
+		return false;
 	}
 
 	virtual bool IsProcessingTasks(int32 QueueIndex)  override
 	{
-		
 		return !!Queue(QueueIndex).RecursionGuard;
 	}
 
@@ -219,3 +320,5 @@ private:
 
 
 };
+
+//TaskThreadAnyThread
