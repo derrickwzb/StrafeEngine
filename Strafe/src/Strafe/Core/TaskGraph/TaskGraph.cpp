@@ -1,6 +1,7 @@
 #include "Strafe/Core/Utils/Windows/WindowsPlatformTypes.h"
 #include "Strafe/Core/TaskGraph/TaskGraphInterface.h"
 #include "Strafe/Core/Threading/Runnable.h"
+#include "Strafe/Core/Utils/Windows/WindowsCriticalSection.h"
 
 static int32 GNumWorkerThreadsToIgnore = 0;
 
@@ -38,6 +39,7 @@ static TaskGraphInterface* TaskGraphImplementationSingleton = NULL;
 class TaskThreadBase : public Runnable
 {
 	//calls meant to be called from a main 
+	public:
 
 	//constructor, initializes everything to unusable values. meant to be called from a main thread
 	TaskThreadBase()
@@ -322,3 +324,60 @@ private:
 };
 
 //TaskThreadAnyThread
+//a aclass for managign worker threads
+class TaskThreadAnyThread : public TaskThreadBase
+{
+	public:
+	TaskThreadAnyThread(int32 PriorityIndex)
+		:PriorityIndex(PriorityIndex)
+	{
+	}
+
+	virtual void ProcessTasksUntilQuit(int32 QueueIndex) override
+	{
+		
+	}
+	
+	private:
+
+	//TODO processtasks
+
+		struct FThreadTaskQueue
+		{
+			/** Event that this thread blocks on when it runs out of work. **/
+			GenericEvent* StallRestartEvent;
+			/** We need to disallow reentry of the processing loop **/
+			uint32 RecursionGuard;
+			/** Indicates we executed a return task, so break out of the processing loop. **/
+			bool QuitForShutdown;
+			/** Should we stall for tuning? **/
+			bool bStallForTuning;
+			WindowsCriticalSection StallForTuning;
+
+			FThreadTaskQueue()
+				: StallRestartEvent(WindowsPlatformProcess::GetSynchEventFromPool(false))
+				, RecursionGuard(0)
+				, QuitForShutdown(false)
+				, bStallForTuning(false)
+			{
+
+			}
+			~FThreadTaskQueue()
+			{
+				WindowsPlatformProcess::ReturnSynchEventToPool(StallRestartEvent);
+				StallRestartEvent = nullptr;
+			}
+		};
+
+		/**
+		*	Internal function to call the system looking for work. Called from this thread.
+		*	@return New task to process.
+		*/
+		BaseGraphTask* FindWork();
+
+		/** Array of queues, only the first one is used for unnamed threads. **/
+		FThreadTaskQueue Queue;
+
+		int32 PriorityIndex;
+
+};
