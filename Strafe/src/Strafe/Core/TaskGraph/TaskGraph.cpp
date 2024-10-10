@@ -3,6 +3,7 @@
 #include "Strafe/Core/Threading/Runnable.h"
 #include "Strafe/Core/Utils/Windows/WindowsCriticalSection.h"
 #include "Strafe/Core/Utils/ScopeLock.h"
+#include "Strafe/Core/Threading/GenericThread.h"
 
 static int32 GNumWorkerThreadsToIgnore = 0;
 
@@ -471,7 +472,7 @@ class TaskThreadAnyThread : public TaskThreadBase
 						ScopeLock Lock(&Queue.StallForTuning);
 					}
 				}
-				//verify !--Queue.RecursionGuard // just ignore this for now we wont be doing recursion but just to be safe
+				//verify !--Queue.RecursionGuard // just ignore this for now 
 				return ProcessedTasks;
 			}
 		}
@@ -514,4 +515,132 @@ class TaskThreadAnyThread : public TaskThreadBase
 
 		int32 PriorityIndex;
 
+};
+
+/**
+	*	WorkerThread
+	*	Helper structure to aggregate a few items related to the individual threads.
+**/
+struct WorkerThread
+{
+	/** The actual FTaskThread that manager this task **/
+	TaskThreadBase* TaskGraphWorker;
+	/** For internal threads, the is non-NULL and holds the information about the runable thread that was created. **/
+	GenericThread* RunnableThread;
+	/** For external threads, this determines if they have been "attached" yet. Attachment is mostly setting up TLS for this individual thread. **/
+	bool				bAttached;
+
+	/** Constructor to set reasonable defaults. **/
+	WorkerThread()
+		: TaskGraphWorker(nullptr)
+		, RunnableThread(nullptr)
+		, bAttached(false)
+	{
+	}
+};
+
+//TaskGraphImplementation
+//Implementation of the centralized task graph system
+//these parts of the system have no knowledge of the dependency graph, they exclusively work on tasks
+class TaskGraphImplementation final : public TaskGraphInterface
+{
+public:
+
+	//api related to lifecycle of the system and singletons
+
+	//singleton returning the one and only taskgrpah implementation
+	//note that a manual call to startup is required before it will return a valid ref
+	static TaskGraphImplementation& Get()
+	{
+		if(TaskGraphImplementationSingleton)
+			return  *static_cast<TaskGraphImplementation*>(TaskGraphImplementationSingleton);
+	}
+
+
+	//constructor 
+	//initializes the data structure, sets the singleton pter and create internal threads
+	TaskGraphImplementation(int32)
+	{
+		CreatedHiPriorityThreads = !!NamedThreadsEnum::bHasHighPriorityThreads;
+		CreatedBackgroundPriorityThreads = !!NamedThreadsEnum::bHasBackgroundThreads;
+
+		int32 MaxTaskThreads = MAX_THREADS;
+		//int32 NumTaskThreads = FPlatformMisc::NumberOfWorkerThreadsToSpawn();
+	}
+
+private:
+	//internals
+	
+	//internal function to verify an index and return the taskthread
+	TaskThreadBase& Thread(int32 Index)
+	{
+		//check if (Index >= 0 && Index < NumThreads);
+		//check if (WorkerThreads[Index].TaskGraphWorker->GetThreadId() == Index);
+		return *WorkerThreads[Index].TaskGraphWorker;
+	}
+
+	//examines thre tls to determine the identity of the current thread
+	NamedThreadsEnum::Type GetCurrentThread()
+	{
+		NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread;
+		WorkerThread* TLSPointer = (WorkerThread*)WindowsPlatformTLS::GetTlsValue(PerThreadIDTLSSlot);
+		if (TLSPointer)
+		{
+			//check if TLSPointer - WorkerThreads >= 0 && TLSPointer - WorkerThreads < NumThreads
+			int32 ThreadIndex = static_cast<int32>(TLSPointer - WorkerThreads);
+			//check if (Thread(ThreadIndex).GetThreadId() == ThreadIndex)
+			if (ThreadIndex < NumNamedThreads)
+			{
+				CurrentThreadIfKnown = NamedThreadsEnum::Type(ThreadIndex);
+			}
+			else
+			{
+				int32 Priority = (ThreadIndex - NumNamedThreads) / NumTaskThreadsPerSet;
+				CurrentThreadIfKnown = NamedThreadsEnum::SetPriorities(NamedThreadsEnum::Type(ThreadIndex), Priority, false);
+			}
+		}
+		return CurrentThreadIfKnown;
+	}
+
+	int32 ThreadIndexToPriorityIndex(int32 ThreadIndex)
+	{
+		//@TODO check that ThreadIndex >= NumNamedThreads && ThreadIndex < NumThreads
+		int32 Result = (ThreadIndex - NumNamedThreads) / NumTaskThreadsPerSet;
+		//@TODO check if Result >= 0 && Result < NumTaskThreadSets
+		return Result;
+	}
+
+
+
+	enum
+	{
+		// Compile time maximum number of threads.
+		MAX_THREADS = 0xFFFF,
+		MAX_THREAD_PRIORITIES = 3
+	};
+
+	//per thread data
+	WorkerThread		WorkerThreads[MAX_THREADS];
+	//number of threads actually in use
+	int32				NumThreads;
+	
+	int32				NumNamedThreads;
+	//number of tasks threads set s for priority
+	int32				NumTaskThreadSets;
+	//number of tasks threads per priority set
+	int32				NumTaskThreadsPerSet;
+	bool				CreatedHiPriorityThreads;
+	bool				CreatedBackgroundPriorityThreads;
+
+	//external threads are not created, the thread is created elsewhere and makes an explicit call to run
+	//here all of the named threads are external. all unnamed threads must be internal
+	NamedThreadsEnum::Type LastExternalThread;
+	std::atomic<int32>	ReentrancyCheck;
+	//tls slot
+	uint32				PerThreadIDTLSSlot;
+
+	//array of callbacks before shutdown
+	std::vector<std::function<void()> > ShutdownCallbacks;
+
+	StallingTaskQueue<BaseGraphTask, PLATFORM_CACHE_LINE_SIZE, 2>	IncomingAnyThreadTasks[MAX_THREAD_PRIORITIES];
 };
