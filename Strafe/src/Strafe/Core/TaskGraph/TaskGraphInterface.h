@@ -341,8 +341,8 @@ protected:
 
 private:
 	friend class NamedTaskThread;
-	//friend class FTaskThreadBase;
-	//friend class FTaskThreadAnyThread;
+	friend class TaskThreadBase;
+	friend class TaskThreadAnyThread;
 	friend class GraphEvent;
 	//friend class FTaskGraphImplementation;
 

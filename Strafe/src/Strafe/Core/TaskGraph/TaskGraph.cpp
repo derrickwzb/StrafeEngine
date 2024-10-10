@@ -2,6 +2,7 @@
 #include "Strafe/Core/TaskGraph/TaskGraphInterface.h"
 #include "Strafe/Core/Threading/Runnable.h"
 #include "Strafe/Core/Utils/Windows/WindowsCriticalSection.h"
+#include "Strafe/Core/Utils/ScopeLock.h"
 
 static int32 GNumWorkerThreadsToIgnore = 0;
 
@@ -335,12 +336,145 @@ class TaskThreadAnyThread : public TaskThreadBase
 
 	virtual void ProcessTasksUntilQuit(int32 QueueIndex) override
 	{
-		
+		if (PriorityIndex != (NamedThreadsEnum::BackgroundThreadPriority >> NamedThreadsEnum::ThreadPriorityShift))
+		{
+			if (!WindowsPlatformTLS::IsValidTlsSlot(PerTheadIDTLSSlot))
+			{
+				PerTheadIDTLSSlot = WindowsPlatformTLS::AllocTlsSlot();
+			}
+			//allocate new tls slot but then there is no memory allocator to cache it so leave it for now
+			//does nothing
+		}
+		//TODO maybe cache? leave it for now got no memory allocator
+		/*if (!WindowsPlatformTLS::IsValidTlsSlot(PerTheadIDTLSSlot))
+		{
+			PerTheadIDTLSSlot = WindowsPlatformTLS::AllocTlsSlot();
+		}*/
+		//void* ThreadSingleton = WindowsPlatformTLS::GetTlsValue(PerTheadIDTLSSlot);
+
+		//check if not queue index
+		do
+		{
+			ProcessTasks();
+		} while (!Queue.QuitForShutdown); // @Hack - quit now when running with only one thread.
+	}
+
+	virtual uint64 ProcessTasksUntilIdle(int32 QueueIndex) override
+	{
+		//todo nothign for now
+		return 0;
+	}
+
+	//calls meant to be called from any thread.
+
+	//will cause the thread to return to the caller when it becomes idle. used to return from processtaskuntilquit for named threads or to shut down unnamed threads.
+	//we should not attempt to stop unnamed threads unless they are actually idle
+	virtual void RequestQuit(int32 QueueIndex) override
+	{
+		//check if queue index <1
+
+		// this will not work under arbitrary circumstances. For example you should not attempt to stop threads unless they are known to be idle.
+		//check if Queue.StallRestartEvent; // make sure we are started up
+		Queue.QuitForShutdown = true;
+		Queue.StallRestartEvent->Trigger();
 	}
 	
+	virtual void WakeUp(int32 QueueIndex = 0) final override
+	{
+		Queue.StallRestartEvent->Trigger();
+	}
+
+	void StallForTuning(bool Stall)
+	{
+		if (Stall)
+		{
+			Queue.StallForTuning.Lock();
+			Queue.bStallForTuning = true;
+		}
+		else
+		{
+			Queue.bStallForTuning = false;
+			Queue.StallForTuning.Unlock();
+		}
+	}
+	//return true if processing tasks. only a guess because it can change before the function returns
+	virtual bool IsProcessingTasks(int32 QueueIndex) override
+	{
+		//todo check validity of queueindex
+		return !!Queue.RecursionGuard;
+	}
+	//for profiling use
+	virtual uint32 Run() override
+	{
+		//TODO 
+		return 0;
+	}
+
 	private:
 
-	//TODO processtasks
+
+		//for profiling use
+		static inline const TCHAR* ThreadPriorityToName(int32 PriorityIdx)
+		{
+			PriorityIdx <<= NamedThreadsEnum::ThreadPriorityShift;
+			if (PriorityIdx == NamedThreadsEnum::HighThreadPriority)
+			{
+				return TEXT("Task Thread HP");
+			}
+			else if (PriorityIdx == NamedThreadsEnum::NormalThreadPriority)
+			{
+				return TEXT("Task Thread NP");
+			}
+			else if (PriorityIdx == NamedThreadsEnum::BackgroundThreadPriority)
+			{
+				return TEXT("Task Thread BP");
+			}
+			else
+			{
+				return TEXT("Task Thread Unknown Priority");
+			}
+		}
+
+		//process tasks until idle. may block if allow stall is true
+		uint64 ProcessTasks()
+		{
+			bool CountAsStall = true;
+			uint64 ProcessedTasks = 0;
+
+			//@TODO verify ++Queue.RecursionGuard == 1
+			bool DidStall = false;
+			while (1)
+			{
+				BaseGraphTask* Task = FindWork();
+				if (!Task)
+				{
+					Queue.StallRestartEvent->Wait(((uint32)0xffffffff), CountAsStall);
+					DidStall = true;
+					if (Queue.QuitForShutdown)
+					{
+						break;
+					}
+					continue;
+				}
+				
+				// the Win scheduler is ill behaved and will sometimes let BG tasks run even when other tasks are ready....kick the scheduler between tasks
+				if (!DidStall && PriorityIndex == (NamedThreadsEnum::BackgroundThreadPriority >> NamedThreadsEnum::ThreadPriorityShift))
+				{
+					WindowsPlatformProcess::Sleep(0);
+				}
+				DidStall = false;
+				Task->Execute(NewTasks, NamedThreadsEnum::Type(ThreadId), true);
+				ProcessedTasks++;
+				if (Queue.bStallForTuning)
+				{
+					{
+						ScopeLock Lock(&Queue.StallForTuning);
+					}
+				}
+				//verify !--Queue.RecursionGuard // just ignore this for now we wont be doing recursion but just to be safe
+				return ProcessedTasks;
+			}
+		}
 
 		struct FThreadTaskQueue
 		{
