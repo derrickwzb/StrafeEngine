@@ -436,7 +436,7 @@ public:
 	//a convenient short version of wait until task completes
 	void Wait(NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
 	{
-		TaskGraphInterface::Get().WaitUntilTaskCompletes(*this, CurrentThreadIfKnown);
+		TaskGraphInterface::Get().WaitUntilTaskCompletes(this, CurrentThreadIfKnown);
 	}
 
 private:
@@ -574,12 +574,12 @@ public:
 		/** Prohibited copy construction **/
 		FConstructor(const FConstructor& Other)
 		{
-			check(0);
+			//TODOcheck(0);
 		}
 		/** Prohibited copy **/
 		void operator=(const FConstructor& Other)
 		{
-			check(0);
+			//TODOcheck(0);
 		}
 	};
 
@@ -588,7 +588,7 @@ public:
 	{
 		GraphEventRef GraphEvent = TTask::GetSubsequentsMode() == SubsequentsModeEnum::FireAndForget ? NULL : GraphEvent::CreateGraphEvent();
 
-		int32 NumPrereq = Prerequisites ? Prerequisites->Num() : 0;
+		int32 NumPrereq = Prerequisites ? Prerequisites->size() : 0;
 		return FConstructor(new TGraphTask(std::move(GraphEvent), NumPrereq), Prerequisites, CurrentThreadIfKnown);
 	}
 
@@ -611,7 +611,7 @@ private:
 	//api derived from basegraphtask 
 	//virtual call to actually execute the task.
 	//executes, destroy the embedded task. dispatch the subsequents, destroy myself
-	void ExecuteTask(TArray<BaseGraphTask*>& NewTasks, NamedThreadsEnum::Type CurrentThread, bool bDeleteOnCompletion) override
+	void ExecuteTask(std::vector<BaseGraphTask*>& NewTasks, NamedThreadsEnum::Type CurrentThread, bool bDeleteOnCompletion) override
 	{
 
 		// Fire and forget mode must not have subsequents
@@ -685,7 +685,7 @@ private:
 		int32 AlreadyCompletedPrerequisites = 0;
 		if (Prerequisites)
 		{
-			for (int32 Index = 0; Index < Prerequisites->Num(); Index++)
+			for (int32 Index = 0; Index < Prerequisites->size(); Index++)
 			{
 				GraphEvent* Prerequisite = (*Prerequisites)[Index];
 				if (Prerequisite == nullptr || !Prerequisite->AddSubsequent(this))
@@ -707,7 +707,7 @@ private:
 	{
 		/*TaskTrace::Launched(GetTraceId(), nullptr, Subsequents.IsValid(), ((TTask*)&TaskStorage)->GetDesiredThread(), sizeof(*this));*/
 
-		FraphEventRef ReturnedEventRef = Subsequents; // very important so that this doesn't get destroyed before we return
+		GraphEventRef ReturnedEventRef = Subsequents; // very important so that this doesn't get destroyed before we return
 		SetupPrereqs(Prerequisites, CurrentThreadIfKnown, true);
 		return ReturnedEventRef;
 	}
@@ -730,7 +730,7 @@ private:
 	//Factory to create a gather task which assumes the given subsequent list from some other tasks.
 	static FConstructor CreateTask(GraphEventRef SubsequentsToAssume, const GraphEventArray* Prerequisites = NULL, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread)
 	{
-		return FConstructor(new TGraphTask(SubsequentsToAssume, Prerequisites ? Prerequisites->Num() : 0), Prerequisites, CurrentThreadIfKnown);
+		return FConstructor(new TGraphTask(SubsequentsToAssume, Prerequisites ? Prerequisites->size() : 0), Prerequisites, CurrentThreadIfKnown);
 	}
 
 	/** An aligned bit of storage to hold the embedded task **/
@@ -869,12 +869,12 @@ private:
 	/** Function to run **/
 	std::function<Signature> Function;
 	/** Thread to run the function on **/
-	const ENamedThreads::Type DesiredThread;
+	const NamedThreadsEnum::Type DesiredThread;
 
 public:
 
 	FunctionGraphTaskImpl(std::function<Signature>&& InFunction, NamedThreadsEnum::Type InDesiredThread)
-		: 	Function(MoveTemp(InFunction)),
+		: 	Function(std::move(InFunction)),
 		DesiredThread(InDesiredThread)
 	{}
 
@@ -906,7 +906,7 @@ private:
 		Function(MyCompletionGraphEvent);
 	}
 
-	FORCEINLINE static void DoTaskImpl(std::function<void(ENamedThreads::Type, const GraphEventRef&)>& Function,
+	FORCEINLINE static void DoTaskImpl(std::function<void(NamedThreadsEnum::Type, const GraphEventRef&)>& Function,
 		NamedThreadsEnum::Type CurrentThread, const GraphEventRef& MyCompletionGraphEvent)
 	{
 		Function(CurrentThread, MyCompletionGraphEvent);

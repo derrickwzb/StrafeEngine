@@ -62,7 +62,7 @@ public:
 };
 
 
-template<int32 TSize, typename BundleRecycler, typename TrackingCounter = NoopCounter, bool AllowDisablingOfTrim = false>
+template<int32 SIZE, typename BundleRecycler, typename TrackingCounter = NoopCounter, bool AllowDisablingOfTrim = false>
 class LockFreeFixedSizeAllocator_TLSCacheBase
 {
 	enum
@@ -146,7 +146,7 @@ class LockFreeFixedSizeAllocator_TLSCacheBase
 			//free(Item);
 			NumUsed.Decrement();
 			NumFree.Increment();
-			FThreadLocalCache& TLS = GetTLS();
+			ThreadLocalCache& TLS = GetTLS();
 			if (TLS.NumPartial >= NUM_PER_BUNDLE)
 			{
 				if (TLS.FullBundle)
@@ -270,7 +270,7 @@ public:
 		}*/
 		while (void* Mem = FreeList.Pop())
 		{
-			delete[] static_cast<char*>(Mem)
+			delete[] static_cast<char*>(Mem);
 			NumFree.Decrement();
 		}
 	}
@@ -281,7 +281,7 @@ public:
 	 * @return Number of used memory blocks.
 	 * @see GetNumFree
 	 */
-	const TTrackingCounter& GetNumUsed() const
+	const TrackingCounter& GetNumUsed() const
 	{
 		return NumUsed;
 	}
@@ -292,7 +292,7 @@ public:
 	 * @return Number of unused memory blocks.
 	 * @see GetNumUsed
 	 */
-	const TTrackingCounter& GetNumFree() const
+	const TrackingCounter& GetNumFree() const
 	{
 		return NumFree;
 	}

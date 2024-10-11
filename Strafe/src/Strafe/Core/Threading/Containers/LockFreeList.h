@@ -3,6 +3,7 @@
 
 #include "Strafe/Core/Utils/Windows/WindowsPlatformProcess.h"
 #include <intrin.h>
+#include <vector>
 
 #define FORCEINLINE __forceinline	
 #define TSAN_SAFE
@@ -309,7 +310,7 @@ public:
 		}
 	}
 
-	bool PushIf(TLinkPtr(*AllocateIfOkToPush)(uint64)) TSAN_SAFE
+	bool PushIf(std::function<TLinkPtr(uint64)>AllocateIfOkToPush) TSAN_SAFE
 	{
 		static_assert(TABAInc > 1, "method should not be used for lists without state");
 		while (true)
@@ -511,7 +512,7 @@ public:
 		while (Links)
 		{
 			TLink* LinksP = LockFreeLinkPolicy::DerefLink(Links);
-			OutArray.emplace((T*)LinksP->Payload);
+			OutArray.emplace_back((T*)LinksP->Payload);
 			TLinkPtr Del = Links;
 			Links = LinksP->SingleNext;
 			LockFreeLinkPolicy::FreeLockFreeLink(Del);

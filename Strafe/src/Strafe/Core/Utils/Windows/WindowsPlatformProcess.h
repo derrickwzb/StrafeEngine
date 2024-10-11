@@ -146,9 +146,9 @@ public:
 };
 
 
-struct ProcessorGroupDesc
-{
-	static constexpr unsigned short int MaxNumProcessorGroups = 16;
-	unsigned long long ThreadAffinities[MaxNumProcessorGroups] = {};
-	unsigned short int NumProcessorGroups = 0;
-};
+//struct ProcessorGroupDesc
+//{
+//	static constexpr unsigned short int MaxNumProcessorGroups = 16;
+//	unsigned long long ThreadAffinities[MaxNumProcessorGroups] = {};
+//	unsigned short int NumProcessorGroups = 0;
+//};

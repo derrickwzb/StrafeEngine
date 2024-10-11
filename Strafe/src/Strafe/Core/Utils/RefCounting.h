@@ -6,10 +6,10 @@
 #include <utility>
 
 //a virtual interface for ref counted objects to implement
-class RefCountedObject
+class IRefCountedObject
 {
 public:
-	virtual ~RefCountedObject() {};
+	virtual ~IRefCountedObject() {};
 	virtual uint32 AddRef() const = 0;
 	virtual uint32 Release() const = 0;
 	virtual uint32 GetRefCount() const = 0;
@@ -96,7 +96,7 @@ public:
 	ThreadSafeRefCountedObject& operator=(const ThreadSafeRefCountedObject& Rhs) = delete;
 	uint32 AddRef() const
 	{
-		return uint32(NumRefs.fetch_add(1)) // Increment and fetch the new value);
+		return uint32(NumRefs.fetch_add(1)); // Increment and fetch the new value);
 	}
 	uint32 Release() const
 	{
@@ -172,7 +172,7 @@ public:
 		}
 	}
 
-	FORCEINLINE RefCountPtr(TRefCountPtr&& Move)
+	FORCEINLINE RefCountPtr(RefCountPtr&& Move)
 	{
 		Reference = Move.Reference;
 		Move.Reference = nullptr;
@@ -294,7 +294,7 @@ public:
 		if (Reference)
 		{
 			Result = Reference->GetRefCount();
-			check(Result > 0); // you should never have a zero ref count if there is a live ref counted pointer (*this is live)
+			//TODO check if(Result > 0); // you should never have a zero ref count if there is a live ref counted pointer (*this is live)
 		}
 		return Result;
 	}
@@ -306,15 +306,7 @@ public:
 		InPtr.Reference = OldReference;
 	}
 
-	void Serialize(FArchive& Ar)
-	{
-		ReferenceType PtrReference = Reference;
-		Ar << PtrReference;
-		if (Ar.IsLoading())
-		{
-			*this = PtrReference;
-		}
-	}
+
 
 private:
 

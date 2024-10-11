@@ -1,3 +1,4 @@
+#include "strafepch.h"
 #include "Strafe/Core/Utils/Windows/WindowsPlatformTypes.h"
 #include "Strafe/Core/TaskGraph/TaskGraphInterface.h"
 #include "Strafe/Core/Threading/Runnable.h"
@@ -1105,19 +1106,11 @@ void GraphEvent::DispatchSubsequents(NamedThreadsEnum::Type CurrentThreadIfKnown
 template <typename T>
 inline void Swap(T& A, T& B)
 {
-	if constexpr (TUseBitwiseSwap<T>::Value)
-	{
-		TTypeCompatibleBytes<T> Temp;
-		*(TTypeCompatibleBytes<T>*)& Temp = *(TTypeCompatibleBytes<T>*) & A;
-		*(TTypeCompatibleBytes<T>*)& A = *(TTypeCompatibleBytes<T>*) & B;
-		*(TTypeCompatibleBytes<T>*)& B = *(TTypeCompatibleBytes<T>*) & Temp;
-	}
-	else
-	{
-		T Temp = MoveTemp(A);
-		A = MoveTemp(B);
-		B = MoveTemp(Temp);
-	}
+	
+		T Temp = std::move(A);
+		A = std::move(B);
+		B = std::move(Temp);
+	
 }
 
 void GraphEvent::DispatchSubsequents(std::vector<BaseGraphTask*>& NewTasks, NamedThreadsEnum::Type CurrentThreadIfKnown, bool bInternal/* = false */)

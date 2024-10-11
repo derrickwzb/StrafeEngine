@@ -2,6 +2,50 @@
 
 //generic reverse iterator for multiple types of ranges
 
+
+/**
+ * Pointer-like reverse iterator type.
+ */
+template <typename T>
+struct ReversePointerIterator
+{
+	// This iterator type only supports the minimal functionality needed to support
+	// C++ ranged-for syntax.  For example, it does not provide post-increment ++ nor ==.
+
+	/**
+	 * Constructor for TReversePointerIterator.
+	 *
+	 * @param  InPtr  A pointer to the location after the element being referenced.
+	 *
+	 * @note  Like std::reverse_iterator, this points to one past the element being referenced.
+	 *        Therefore, for an array of size N starting at P, the begin iterator should be
+	 *        constructed at (P+N) and the end iterator should be constructed at P.
+	 */
+	constexpr explicit ReversePointerIterator(T* InPtr )
+		: Ptr(InPtr)
+	{
+	}
+
+	constexpr inline T& operator*() const
+	{
+		return *(Ptr - 1);
+	}
+
+	constexpr inline ReversePointerIterator& operator++()
+	{
+		--Ptr;
+		return *this;
+	}
+
+	constexpr inline bool operator!=(const ReversePointerIterator& Rhs) const
+	{
+		return Ptr != Rhs.Ptr;
+	}
+
+private:
+	T* Ptr;
+};
+
 template <typename RangeType>
 struct ReverseIterationAdapter
 {
