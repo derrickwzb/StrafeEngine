@@ -4,6 +4,9 @@
 #include "Strafe/Core/Utils/Windows/WindowsCriticalSection.h"
 #include "Strafe/Core/Utils/ScopeLock.h"
 #include "Strafe/Core/Threading/GenericThread.h"
+#include "Strafe/Core/Utils/Windows/WindowsPlatformMisc.h"
+#include "Strafe/Core/Utils/ScopedEvent.h"
+#include "Strafe/Core/Utils/ReverseIterate.h"
 
 static int32 GNumWorkerThreadsToIgnore = 0;
 
@@ -556,7 +559,6 @@ public:
 			return  *static_cast<TaskGraphImplementation*>(TaskGraphImplementationSingleton);
 	}
 
-
 	//constructor 
 	//initializes the data structure, sets the singleton pter and create internal threads
 	TaskGraphImplementation(int32)
@@ -565,7 +567,410 @@ public:
 		CreatedBackgroundPriorityThreads = !!NamedThreadsEnum::bHasBackgroundThreads;
 
 		int32 MaxTaskThreads = MAX_THREADS;
-		//int32 NumTaskThreads = FPlatformMisc::NumberOfWorkerThreadsToSpawn();
+		int32 NumTaskThreads = WindowsPlatformMisc::NumberOfWorkerThreadsToSpawn();
+
+		LastExternalThread = NamedThreadsEnum::ActualRenderingThread;
+
+		NumNamedThreads = LastExternalThread + 1;
+
+		NumTaskThreadSets = 1 + CreatedHiPriorityThreads + CreatedBackgroundPriorityThreads;
+		// if we don't have enough threads to allow all of the sets asked for, then we can't create what was asked for.
+		//@TODO check if (NumTaskThreadSets == 1 || Min<int32>(NumTaskThreads * NumTaskThreadSets + NumNamedThreads, MAX_THREADS) == NumTaskThreads * NumTaskThreadSets + NumNamedThreads);
+		NumThreads = Max<int32>(Min<int32>(NumTaskThreads * NumTaskThreadSets + NumNamedThreads, MAX_THREADS), NumNamedThreads + 1);
+
+		// Cap number of extra threads to the platform worker thread count
+		// if we don't have enough threads to allow all of the sets asked for, then we can't create what was asked for.
+		//@TODO check if (NumTaskThreadSets == 1 || FMath::Min(NumThreads, NumNamedThreads + NumTaskThreads * NumTaskThreadSets) == NumThreads);
+		NumThreads = Min(NumThreads, NumNamedThreads + NumTaskThreads * NumTaskThreadSets);
+
+		NumTaskThreadsPerSet = (NumThreads - NumNamedThreads) / NumTaskThreadSets;
+		//TODO check if ((NumThreads - NumNamedThreads) % NumTaskThreadSets == 0); // should be equal numbers of threads per priority set
+
+		//log here that taskgraph is started with numnamedthreads, numthreads and numtaskthreadsets
+		//TODO check if (NumThreads - NumNamedThreads >= 1);  // need at least one pure worker thread
+		//TODO check if (NumThreads <= MAX_THREADS);
+		//TODO check if (!ReentrancyCheck.GetValue()); ensure no reentrancy
+		ReentrancyCheck.fetch_add(1); // just checking for reentrancy
+		PerThreadIDTLSSlot = WindowsPlatformTLS::AllocTlsSlot();
+
+		for (int32 ThreadIndex = 0; ThreadIndex < NumThreads; ThreadIndex++)
+		{
+			//TODO check(!WorkerThreads[ThreadIndex].bAttached); // reentrant?
+			bool bAnyTaskThread = ThreadIndex >= NumNamedThreads;
+			if (bAnyTaskThread)
+			{
+				WorkerThreads[ThreadIndex].TaskGraphWorker = new TaskThreadAnyThread(ThreadIndexToPriorityIndex(ThreadIndex));
+			}
+			else
+			{
+				WorkerThreads[ThreadIndex].TaskGraphWorker = new NamedTaskThread;
+			}
+			WorkerThreads[ThreadIndex].TaskGraphWorker->Setup(NamedThreadsEnum::Type(ThreadIndex), PerThreadIDTLSSlot, &WorkerThreads[ThreadIndex]);
+
+		}
+		TaskGraphImplementationSingleton = this; // now reentrancy is ok
+
+		const TCHAR* PrevGroupName = nullptr;
+		for (int32 ThreadIndex = LastExternalThread + 1; ThreadIndex < NumThreads; ThreadIndex++)
+		{
+			TCHAR* Name;
+			const TCHAR* GroupName = TEXT("TaskGraphNormal");
+			int32 Priority = ThreadIndexToPriorityIndex(ThreadIndex);
+			// These are below normal threads so that they sleep when the named threads are active
+			ThreadPriority ThreadPri;
+			uint64 Affinity = WindowsPlatformAffinity::GetTaskGraphThreadMask();
+			if (Priority == 1)
+			{
+				*Name = (TEXT("TaskGraphThreadHP %d"), ThreadIndex - (LastExternalThread + 1));
+				GroupName = TEXT("TaskGraphHigh");
+				ThreadPri = ThreadPri_SlightlyBelowNormal; // we want even hi priority tasks below the normal threads
+
+				// If the platform defines FPlatformAffinity::GetTaskGraphHighPriorityTaskMask then use it
+				if (WindowsPlatformAffinity::GetTaskGraphHighPriorityTaskMask() != 0xFFFFFFFFFFFFFFFF)
+				{
+					Affinity = WindowsPlatformAffinity::GetTaskGraphHighPriorityTaskMask();
+				}
+			}
+			else if (Priority == 2)
+			{
+				*Name = (TEXT("TaskGraphThreadBP %d"), ThreadIndex - (LastExternalThread + 1));
+				GroupName = TEXT("TaskGraphLow");
+				ThreadPri = ThreadPri_Lowest;
+				// If the platform defines FPlatformAffinity::GetTaskGraphBackgroundTaskMask then use it
+				if (WindowsPlatformAffinity::GetTaskGraphBackgroundTaskMask() != 0xFFFFFFFFFFFFFFFF)
+				{
+					Affinity = WindowsPlatformAffinity::GetTaskGraphBackgroundTaskMask();
+				}
+			}
+			else
+			{
+				*Name = (TEXT("TaskGraphThreadNP %d"), ThreadIndex - (LastExternalThread + 1));
+				ThreadPri = ThreadPri_BelowNormal; // we want normal tasks below normal threads like the game thread
+			}
+
+			int32 StackSize;
+			StackSize = 1024 * 1024;
+
+
+			if (GroupName != PrevGroupName)
+			{
+				//group names can be used for profiling
+				PrevGroupName = GroupName;
+			}
+			
+			WorkerThreads[ThreadIndex].RunnableThread = GenericThread::Create(&Thread(ThreadIndex), Name, StackSize, ThreadPri, Affinity);
+			
+			WorkerThreads[ThreadIndex].bAttached = true;
+		}
+	}
+
+	//destructor - probably only works reliably when the system is completely idle. the system has no idea if it is idle or not
+	virtual ~TaskGraphImplementation()
+	{
+		for (auto& Callback : ShutdownCallbacks)
+		{
+			Callback();
+		}
+		ShutdownCallbacks.clear();
+		for (int32 ThreadIndex = 0; ThreadIndex < NumThreads; ThreadIndex++)
+		{
+			Thread(ThreadIndex).RequestQuit(-1);
+		}
+		for (int32 ThreadIndex = 0; ThreadIndex < NumThreads; ThreadIndex++)
+		{
+			if (ThreadIndex > LastExternalThread)
+			{
+				WorkerThreads[ThreadIndex].RunnableThread->WaitForCompletion();
+				delete WorkerThreads[ThreadIndex].RunnableThread;
+				WorkerThreads[ThreadIndex].RunnableThread = NULL;
+			}
+			WorkerThreads[ThreadIndex].bAttached = false;
+		}
+		TaskGraphImplementationSingleton = NULL;
+		NumTaskThreadsPerSet = 0;
+		WindowsPlatformTLS::FreeTlsSlot(PerThreadIDTLSSlot);
+	}
+
+	// API inherited from FTaskGraphInterface
+
+	//function to queue a task, called from basegraphtask
+	virtual void QueueTask(BaseGraphTask* Task, bool bWakeUpWorker, NamedThreadsEnum::Type ThreadToExecuteOn, NamedThreadsEnum::Type InCurrentThreadIfKnown = NamedThreadsEnum::AnyThread) final override
+	{
+
+		if (NamedThreadsEnum::GetThreadIndex(ThreadToExecuteOn) == NamedThreadsEnum::AnyThread)
+		{
+			
+				uint32 TaskPriority = NamedThreadsEnum::GetTaskPriority(Task->GetThreadToExecuteOn());
+				int32 Priority = NamedThreadsEnum::GetThreadPriorityIndex(Task->GetThreadToExecuteOn());
+				if (Priority == (NamedThreadsEnum::BackgroundThreadPriority >> NamedThreadsEnum::ThreadPriorityShift) && (!CreatedBackgroundPriorityThreads || !NamedThreadsEnum::bHasBackgroundThreads))
+				{
+					Priority = NamedThreadsEnum::NormalThreadPriority >> NamedThreadsEnum::ThreadPriorityShift; // we don't have background threads, promote to normal
+					TaskPriority = NamedThreadsEnum::NormalTaskPriority >> NamedThreadsEnum::TaskPriorityShift; // demote to normal task pri
+				}
+				else if (Priority == (NamedThreadsEnum::HighThreadPriority >> NamedThreadsEnum::ThreadPriorityShift) && (!CreatedHiPriorityThreads || !NamedThreadsEnum::bHasHighPriorityThreads))
+				{
+					Priority = NamedThreadsEnum::NormalThreadPriority >> NamedThreadsEnum::ThreadPriorityShift; // we don't have hi priority threads, demote to normal
+					TaskPriority = NamedThreadsEnum::HighTaskPriority >> NamedThreadsEnum::TaskPriorityShift; // promote to hi task pri
+				}
+				uint32 PriIndex = TaskPriority ? 0 : 1;
+				//TODO check if(Priority >= 0 && Priority < MAX_THREAD_PRIORITIES);
+				{
+					int32 IndexToStart = IncomingAnyThreadTasks[Priority].Push(Task, PriIndex);
+					if (IndexToStart >= 0)
+					{
+						StartTaskThread(Priority, IndexToStart);
+					}
+				}
+				return;
+			
+		}
+		NamedThreadsEnum::Type CurrentThreadIfKnown;
+		if (NamedThreadsEnum::GetThreadIndex(InCurrentThreadIfKnown) == NamedThreadsEnum::AnyThread)
+		{
+			CurrentThreadIfKnown = GetCurrentThread();
+		}
+		else
+		{
+			CurrentThreadIfKnown = NamedThreadsEnum::GetThreadIndex(InCurrentThreadIfKnown);
+			//check if(CurrentThreadIfKnown == ENamedThreads::GetThreadIndex(GetCurrentThread()));
+		}
+		{
+			int32 QueueToExecuteOn = NamedThreadsEnum::GetQueueIndex(ThreadToExecuteOn);
+			ThreadToExecuteOn = NamedThreadsEnum::GetThreadIndex(ThreadToExecuteOn);
+			TaskThreadBase* Target = &Thread(ThreadToExecuteOn);
+			if (ThreadToExecuteOn == NamedThreadsEnum::GetThreadIndex(CurrentThreadIfKnown))
+			{
+				Target->EnqueueFromThisThread(QueueToExecuteOn, Task);
+			}
+			else
+			{
+				Target->EnqueueFromOtherThread(QueueToExecuteOn, Task);
+			}
+		}
+	}
+
+	virtual int32 GetNumWorkerThreads() final override
+	{
+		int32 Result = (NumThreads - NumNamedThreads) / NumTaskThreadSets - GNumWorkerThreadsToIgnore;
+		//TODO check if(Result > 0); // can't tune it to zero task threads
+		return Result;
+	}
+
+	virtual int32 GetNumForegroundThreads() final override
+	{
+		return CreatedHiPriorityThreads ? NumTaskThreadsPerSet : 0;
+	}
+
+	virtual int32 GetNumBackgroundThreads() final override
+	{
+		return CreatedBackgroundPriorityThreads ? NumTaskThreadsPerSet : 0;
+	}
+
+	virtual bool IsCurrentThreadKnown() final override
+	{
+		return WindowsPlatformTLS::GetTlsValue(PerThreadIDTLSSlot) != nullptr;
+	}
+
+	virtual NamedThreadsEnum::Type GetCurrentThreadIfKnown(bool bLocalQueue) final override
+	{
+		NamedThreadsEnum::Type Result = GetCurrentThread();
+		if (bLocalQueue && NamedThreadsEnum::GetThreadIndex(Result) >= 0 && NamedThreadsEnum::GetThreadIndex(Result) < NumNamedThreads)
+		{
+			Result = NamedThreadsEnum::Type(int32(Result) | int32(NamedThreadsEnum::LocalQueue));
+		}
+		return Result;
+	}
+
+	virtual bool IsThreadProcessingTasks(NamedThreadsEnum::Type ThreadToCheck) final override
+	{
+		int32 QueueIndex = NamedThreadsEnum::GetQueueIndex(ThreadToCheck);
+		ThreadToCheck = NamedThreadsEnum::GetThreadIndex(ThreadToCheck);
+		//TODO check if(ThreadToCheck >= 0 && ThreadToCheck < NumNamedThreads);
+		return Thread(ThreadToCheck).IsProcessingTasks(QueueIndex);
+	}
+
+	//External Thread API
+
+	virtual void AttachToThread(NamedThreadsEnum::Type CurrentThread) final override
+	{
+		CurrentThread = NamedThreadsEnum::GetThreadIndex(CurrentThread);
+		//TODO check(NumTaskThreadsPerSet);
+		//TODO check(CurrentThread >= 0 && CurrentThread < NumNamedThreads);
+		//TODO check(!WorkerThreads[CurrentThread].bAttached);
+		Thread(CurrentThread).InitializeForCurrentThread();
+	}
+
+	virtual uint64 ProcessThreadUntilIdle(NamedThreadsEnum::Type CurrentThread) final override
+	{
+		int32 QueueIndex = NamedThreadsEnum::GetQueueIndex(CurrentThread);
+		CurrentThread = NamedThreadsEnum::GetThreadIndex(CurrentThread);
+		//check(CurrentThread >= 0 && CurrentThread < NumNamedThreads);
+		//check(CurrentThread == GetCurrentThread());
+		return Thread(CurrentThread).ProcessTasksUntilIdle(QueueIndex);
+	}
+
+	virtual void ProcessThreadUntilRequestReturn(NamedThreadsEnum::Type CurrentThread) final override
+	{
+		int32 QueueIndex = NamedThreadsEnum::GetQueueIndex(CurrentThread);
+		CurrentThread = NamedThreadsEnum::GetThreadIndex(CurrentThread);
+		//TODO check(CurrentThread >= 0 && CurrentThread < NumNamedThreads);
+		//TODO check(CurrentThread == GetCurrentThread());
+		Thread(CurrentThread).ProcessTasksUntilQuit(QueueIndex);
+	}
+
+	virtual void RequestReturn(NamedThreadsEnum::Type CurrentThread) final override
+	{
+		int32 QueueIndex = NamedThreadsEnum::GetQueueIndex(CurrentThread);
+		CurrentThread = NamedThreadsEnum::GetThreadIndex(CurrentThread);
+		//TODO check(CurrentThread != NamedThreadsEnum::AnyThread);
+		Thread(CurrentThread).RequestQuit(QueueIndex);
+	}
+
+	virtual void WaitUntilTasksComplete(const GraphEventArray& Tasks, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread) final override
+	{
+		
+
+		NamedThreadsEnum::Type CurrentThread = CurrentThreadIfKnown;
+		if (NamedThreadsEnum::GetThreadIndex(CurrentThreadIfKnown) == NamedThreadsEnum::AnyThread)
+		{
+			bool bIsHiPri = !!NamedThreadsEnum::GetTaskPriority(CurrentThreadIfKnown);
+			int32 Priority = NamedThreadsEnum::GetThreadPriorityIndex(CurrentThreadIfKnown);
+			//TODO check(!NamedThreadsEnum::GetQueueIndex(CurrentThreadIfKnown));
+			CurrentThreadIfKnown = NamedThreadsEnum::GetThreadIndex(GetCurrentThread());
+			CurrentThread = NamedThreadsEnum::SetPriorities(CurrentThreadIfKnown, Priority, bIsHiPri);
+		}
+		else
+		{
+			CurrentThreadIfKnown = NamedThreadsEnum::GetThreadIndex(CurrentThreadIfKnown);
+			//TODO check(CurrentThreadIfKnown == NamedThreadsEnum::GetThreadIndex(GetCurrentThread()));
+			// we don't modify CurrentThread here because it might be a local queue
+		}
+
+		if (CurrentThreadIfKnown != NamedThreadsEnum::AnyThread && CurrentThreadIfKnown < NumNamedThreads && !IsThreadProcessingTasks(CurrentThread))
+		{
+			if (Tasks.size() < 8) // don't bother to check for completion if there are lots of prereqs...too expensive to check
+			{
+				bool bAnyPending = false;
+				for (int32 Index = 0; Index < Tasks.size(); Index++)
+				{
+					GraphEvent* Task = Tasks[Index].GetReference();
+					if (Task && !Task->IsComplete())
+					{
+						bAnyPending = true;
+						break;
+					}
+				}
+				if (!bAnyPending)
+				{
+					return;
+				}
+			}
+
+			// named thread process tasks while we wait
+			TGraphTask<ReturnGraphTask>::CreateTask(&Tasks, CurrentThread).ConstructAndDispatchWhenReady(CurrentThread);
+			ProcessThreadUntilRequestReturn(CurrentThread);
+		}
+		else
+		{
+
+			// We will just stall this thread on an event while we wait
+			ScopedEvent Event;
+			TriggerEventWhenTasksComplete(Event.Get(), Tasks, CurrentThreadIfKnown);
+		}
+	}
+
+	virtual void TriggerEventWhenTasksComplete(GenericEvent* InEvent, const GraphEventArray& Tasks, NamedThreadsEnum::Type CurrentThreadIfKnown = NamedThreadsEnum::AnyThread, NamedThreadsEnum::Type TriggerThread = NamedThreadsEnum::AnyHiPriThreadHiPriTask) final override
+	{
+		//TODO check if(InEvent);
+		bool bAnyPending = true;
+		if (Tasks.size() < 8) // don't bother to check for completion if there are lots of prereqs...too expensive to check
+		{
+			bAnyPending = false;
+			for (int32 Index = 0; Index < Tasks.size(); Index++)
+			{
+				GraphEvent* Task = Tasks[Index].GetReference();
+				if (Task && !Task->IsComplete())
+				{
+					bAnyPending = true;
+					break;
+				}
+			}
+		}
+		if (!bAnyPending)
+		{
+			InEvent->Trigger();
+			return;
+		}
+		TGraphTask<TriggerEventGraphTask>::CreateTask(&Tasks, CurrentThreadIfKnown).ConstructAndDispatchWhenReady(InEvent, TriggerThread);
+	}
+
+	virtual void AddShutdownCallback(std::function<void()>& Callback) override
+	{
+		ShutdownCallbacks.emplace_back(Callback);
+	}
+
+	virtual void WakeNamedThread(NamedThreadsEnum::Type ThreadToWake) override
+	{
+		const NamedThreadsEnum::Type ThreadIndex = NamedThreadsEnum::GetThreadIndex(ThreadToWake);
+		if (ThreadIndex < NumNamedThreads)
+		{
+			Thread(ThreadIndex).WakeUp(NamedThreadsEnum::GetQueueIndex(ThreadToWake));
+		}
+	}
+
+	// Scheduling utilities
+
+	void StartTaskThread(int32 Priority, int32 IndexToStart)
+	{
+		NamedThreadsEnum::Type ThreadToWake = NamedThreadsEnum::Type(IndexToStart + Priority * NumTaskThreadsPerSet + NumNamedThreads);
+		((TaskThreadAnyThread&)Thread(ThreadToWake)).WakeUp();
+	}
+	void StartAllTaskThreads(bool bDoBackgroundThreads)
+	{
+		for (int32 Index = 0; Index < GetNumWorkerThreads(); Index++)
+		{
+			for (int32 Priority = 0; Priority < NamedThreadsEnum::NumThreadPriorities; Priority++)
+			{
+				if (Priority == (NamedThreadsEnum::NormalThreadPriority >> NamedThreadsEnum::ThreadPriorityShift) ||
+					(Priority == (NamedThreadsEnum::HighThreadPriority >> NamedThreadsEnum::ThreadPriorityShift) && CreatedHiPriorityThreads) ||
+					(Priority == (NamedThreadsEnum::BackgroundThreadPriority >> NamedThreadsEnum::ThreadPriorityShift) && CreatedBackgroundPriorityThreads && bDoBackgroundThreads)
+					)
+				{
+					StartTaskThread(Priority, Index);
+				}
+			}
+		}
+	}
+
+	BaseGraphTask* FindWork(NamedThreadsEnum::Type ThreadInNeed) override
+	{
+		int32 LocalNumWorkingThread = GetNumWorkerThreads() + GNumWorkerThreadsToIgnore;
+		int32 MyIndex = int32((uint32(ThreadInNeed) - NumNamedThreads) % NumTaskThreadsPerSet);
+		int32 Priority = int32((uint32(ThreadInNeed) - NumNamedThreads) / NumTaskThreadsPerSet);
+		//TODO check if (MyIndex >= 0 && MyIndex < LocalNumWorkingThread && Priority >= 0 && Priority < NamedThreadsEnum::NumThreadPriorities);
+
+		return IncomingAnyThreadTasks[Priority].Pop(MyIndex, true);
+	}
+
+	void StallForTuning(int32 Index, bool Stall) override
+	{
+		for (int32 Priority = 0; Priority < NamedThreadsEnum::NumThreadPriorities; Priority++)
+		{
+			NamedThreadsEnum::Type ThreadToWake = NamedThreadsEnum::Type(Index + Priority * NumTaskThreadsPerSet + NumNamedThreads);
+			((TaskThreadAnyThread&)Thread(ThreadToWake)).StallForTuning(Stall);
+		}
+	}
+
+	void SetTaskThreadPriorities(ThreadPriority Pri)
+	{
+		//TODO check if (NumTaskThreadSets == 1); // otherwise tuning this doesn't make a lot of sense
+		for (int32 ThreadIndex = 0; ThreadIndex < NumThreads; ThreadIndex++)
+		{
+			if (ThreadIndex > LastExternalThread)
+			{
+				WorkerThreads[ThreadIndex].RunnableThread->SetThreadPriority(Pri);
+			}
+		}
 	}
 
 private:
@@ -644,3 +1049,134 @@ private:
 
 	StallingTaskQueue<BaseGraphTask, PLATFORM_CACHE_LINE_SIZE, 2>	IncomingAnyThreadTasks[MAX_THREAD_PRIORITIES];
 };
+
+// Implementations of FTaskThread function that require knowledge of FTaskGraphImplementation
+
+BaseGraphTask* TaskThreadAnyThread::FindWork()
+{
+	return TaskGraphImplementationSingleton->FindWork(ThreadId);
+}
+
+// Statics in FTaskGraphInterface
+
+void TaskGraphInterface::Startup(int32 NumThreads)
+{
+	new TaskGraphImplementation(NumThreads);
+}
+
+void TaskGraphInterface::Shutdown()
+{
+	delete TaskGraphImplementationSingleton;
+	TaskGraphImplementationSingleton = nullptr;
+}
+
+TaskGraphInterface& TaskGraphInterface::Get()
+{
+	//check if(TaskGraphImplementationSingleton);
+	return *TaskGraphImplementationSingleton;
+}
+
+static LockFreeClassAllocator_TLSCache<GraphEvent, PLATFORM_CACHE_LINE_SIZE>& GetGraphEventAllocator()
+{
+	static LockFreeClassAllocator_TLSCache<GraphEvent, PLATFORM_CACHE_LINE_SIZE> Allocator;
+	return Allocator;
+}
+
+GraphEventRef GraphEvent::CreateGraphEvent()
+{
+	GraphEvent* Instance = new(GetGraphEventAllocator().Allocate()) GraphEvent{};
+	return Instance;
+}
+
+void GraphEvent::Recycle(GraphEvent* ToRecycle)
+{
+	GetGraphEventAllocator().Free(ToRecycle);
+}
+
+void GraphEvent::DispatchSubsequents(NamedThreadsEnum::Type CurrentThreadIfKnown)
+{
+	std::vector<BaseGraphTask*> NewTasks;
+	DispatchSubsequents(NewTasks, CurrentThreadIfKnown);
+}
+
+/**
+ * Swap two values.  Assumes the types are trivially relocatable.
+ */
+template <typename T>
+inline void Swap(T& A, T& B)
+{
+	if constexpr (TUseBitwiseSwap<T>::Value)
+	{
+		TTypeCompatibleBytes<T> Temp;
+		*(TTypeCompatibleBytes<T>*)& Temp = *(TTypeCompatibleBytes<T>*) & A;
+		*(TTypeCompatibleBytes<T>*)& A = *(TTypeCompatibleBytes<T>*) & B;
+		*(TTypeCompatibleBytes<T>*)& B = *(TTypeCompatibleBytes<T>*) & Temp;
+	}
+	else
+	{
+		T Temp = MoveTemp(A);
+		A = MoveTemp(B);
+		B = MoveTemp(Temp);
+	}
+}
+
+void GraphEvent::DispatchSubsequents(std::vector<BaseGraphTask*>& NewTasks, NamedThreadsEnum::Type CurrentThreadIfKnown, bool bInternal/* = false */)
+{
+	if (EventsToWaitFor.size())
+	{
+		// need to save this first and empty the actual tail of the task might be recycled faster than it is cleared.
+		GraphEventArray TempEventsToWaitFor;
+		Swap(EventsToWaitFor, TempEventsToWaitFor);
+
+		bool bSpawnGatherTask = true;
+
+
+		bSpawnGatherTask = false;
+		for (GraphEventRef& Item : TempEventsToWaitFor)
+		{
+			if (!Item->IsComplete())
+			{
+				bSpawnGatherTask = true;
+				break;
+			}
+		}
+
+
+		if (bSpawnGatherTask)
+		{
+			// create the Gather...this uses a special version of private CreateTask that "assumes" the subsequent list (which other threads might still be adding too).
+
+
+			NamedThreadsEnum::Type LocalThreadToDoGatherOn = NamedThreadsEnum::AnyHiPriThreadHiPriTask;
+
+			{
+				//LocalThreadToDoGatherOn = ThreadToDoGatherOn;
+				NamedThreadsEnum::Type CurrentThreadIndex = NamedThreadsEnum::GetThreadIndex(CurrentThreadIfKnown);
+				if (CurrentThreadIndex <= NamedThreadsEnum::ActualRenderingThread)
+				{
+					LocalThreadToDoGatherOn = CurrentThreadIndex;
+				}
+
+				TGraphTask<NullGraphTask>::CreateTask(GraphEventRef(this), &TempEventsToWaitFor, CurrentThreadIfKnown).ConstructAndDispatchWhenReady(LocalThreadToDoGatherOn);
+				return;
+			}
+		}
+
+		bool bWakeUpWorker = false;
+		std::vector<BaseGraphTask*> PoppedTasks;
+		SubsequentList.PopAllAndClose(PoppedTasks);
+		for (BaseGraphTask* NewTask : ReverseIterate(PoppedTasks)) // reverse the order since PopAll is implicitly backwards
+		{
+			//check if(NewTask);
+			NewTask->ConditionalQueueTask(CurrentThreadIfKnown, bWakeUpWorker);
+		}
+
+	}
+}
+
+GraphEvent::~GraphEvent()
+{
+
+	CheckDontCompleteUntilIsEmpty(); // We should not have any wait untils outstanding
+
+}

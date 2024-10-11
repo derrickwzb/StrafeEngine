@@ -282,7 +282,7 @@ public:
 	virtual void StallForTuning(int32 Index, bool Stall) = 0;
 
 	//Delegates for shutdown
-	virtual void AddShutdownCallback(std::function<void()> Callback) = 0;
+	virtual void AddShutdownCallback(std::function<void()>& Callback) = 0;
 
 	virtual void WakeNamedThread(NamedThreadsEnum::Type ThreadToWake) = 0;
 	//
@@ -344,7 +344,7 @@ private:
 	friend class TaskThreadBase;
 	friend class TaskThreadAnyThread;
 	friend class GraphEvent;
-	//friend class FTaskGraphImplementation;
+	friend class TaskGraphImplementation;
 
 	//subclass api
 	//virtual call to actually execute the task. this will also call the destructor and free any memory if deleteoncompletion is set to true
@@ -496,7 +496,36 @@ private:
 };
 
 
+/**
+ The user defined task type can take arguments to a constructor. These arguments (unfortunately) must not be references.
+ The API required of TTask:
 
+class GenericTask
+{
+	SomeType	SomeArgument;
+public:
+	GenericTask(SomeType InSomeArgument) // CAUTION!: Must not use references in the constructor args; use pointers instead if you need by reference
+		: SomeArgument(InSomeArgument)
+	{
+		// Usually the constructor doesn't do anything except save the arguments for use in DoWork or GetDesiredThread.
+	}
+	~GenericTask()
+	{
+		// you will be destroyed immediately after you execute. Might as well do cleanup in DoWork, but you could also use a destructor.
+	}
+
+	[static] NamedThreadsEnum::Type GetDesiredThread()
+	{
+		return NamedThreadsEnum::[named thread or AnyThread];
+	}
+	void DoTask(ENamedThreads::Type CurrentThread, const FGraphEventRef& MyCompletionGraphEvent)
+	{
+		// The arguments are useful for setting up other tasks.
+		// Do work here, probably using SomeArgument.
+		MyCompletionGraphEvent->DontCompleteUntil(TGraphTask<SomeChildTask>::CreateTask(NULL,CurrentThread).ConstructAndDispatchWhenReady());
+	}
+};
+**/
 
 //tgraphtask
 //embeds a user defined task, as exemplified above, for doing the work and provides the functionality for setting up and handling prerequisites and subsequents
@@ -716,3 +745,209 @@ private:
 
 // Returns a graph event that gets completed as soon as any of the given tasks gets completed
 GraphEventRef AnyTaskCompleted(const GraphEventArray& GraphEvents);
+
+
+//ReturnGraphTask is a task used to return flow control from a named thread back to the original caller of ProcessThreadRequestReturn
+class ReturnGraphTask
+{
+public:
+
+	/**
+	 *	Constructor
+	 *	@param InThreadToReturnFrom; named thread to cause to return
+	**/
+	ReturnGraphTask(NamedThreadsEnum::Type InThreadToReturnFrom)
+		: ThreadToReturnFrom(InThreadToReturnFrom)
+	{
+		//TODO check if (ThreadToReturnFrom != ENamedThreads::AnyThread); // doesn't make any sense to return from any thread
+	}
+
+	/**
+	 *	Retrieve the thread that this task wants to run on.
+	 *	@return the thread that this task should run on.
+	 **/
+	NamedThreadsEnum::Type GetDesiredThread()
+	{
+		return ThreadToReturnFrom;
+	}
+
+	static SubsequentsModeEnum::Type GetSubsequentsMode() { return SubsequentsModeEnum::TrackSubsequents; }
+
+	/**
+	 *	Actually execute the task.
+	 *	@param	CurrentThread; the thread we are running on
+	 *	@param	MyCompletionGraphEvent; my completion event. Not always useful since at the end of DoWork, you can assume you are done and hence further tasks do not need you as a prerequisite.
+	 *	However, MyCompletionGraphEvent can be useful for passing to other routines or when it is handy to set up subsequents before you actually do work.
+	 **/
+	void DoTask(NamedThreadsEnum::Type CurrentThread, const GraphEventRef& MyCompletionGraphEvent)
+	{
+		//check if (NamedThreadsEnum::GetThreadIndex(ThreadToReturnFrom) == NamedThreadsEnum::GetThreadIndex(CurrentThread)); // we somehow are executing on the wrong thread.
+		TaskGraphInterface::Get().RequestReturn(ThreadToReturnFrom);
+	}
+
+private:
+	/** Named thread that we want to cause to return to the caller of ProcessThreadUntilRequestReturn. **/
+	NamedThreadsEnum::Type ThreadToReturnFrom;
+};
+
+//NullGraphTask is a task that does nothing. it is used to gather tasks into one preq
+class NullGraphTask 
+{
+public:
+	/**
+	 *	Constructor
+	 *	@param StatId The stat id for this task.
+	 *	@param InDesiredThread; Thread to run on, can be ENamedThreads::AnyThread
+	**/
+	NullGraphTask( NamedThreadsEnum::Type InDesiredThread)
+		:DesiredThread(InDesiredThread)
+	{
+	}
+
+	/**
+	 *	Retrieve the thread that this task wants to run on.
+	 *	@return the thread that this task should run on.
+	 **/
+	NamedThreadsEnum::Type GetDesiredThread()
+	{
+		return DesiredThread;
+	}
+
+	static SubsequentsModeEnum::Type GetSubsequentsMode() { return SubsequentsModeEnum::TrackSubsequents; }
+
+	/**
+	 *	Actually execute the task.
+	 *	@param	CurrentThread; the thread we are running on
+	 *	@param	MyCompletionGraphEvent; my completion event. Not always useful since at the end of DoWork, you can assume you are done and hence further tasks do not need you as a prerequisite.
+	 *	However, MyCompletionGraphEvent can be useful for passing to other routines or when it is handy to set up subsequents before you actually do work.
+	 **/
+	void DoTask(NamedThreadsEnum::Type CurrentThread, const GraphEventRef& MyCompletionGraphEvent)
+	{
+	}
+private:
+	/** Thread to run on, can be ENamedThreads::AnyThread **/
+	NamedThreadsEnum::Type DesiredThread;
+};
+
+//TriggerEventGraphTask is a task that triggers an event
+class TriggerEventGraphTask
+{
+public:
+	/**
+	 *	Constructor
+	 *	@param InScopedEvent; Scoped event to fire
+	**/
+	TriggerEventGraphTask(GenericEvent* InEvent, NamedThreadsEnum::Type InDesiredThread = NamedThreadsEnum::AnyHiPriThreadHiPriTask)
+		: Event(InEvent)
+		, DesiredThread(InDesiredThread)
+	{
+		//check if Event);
+	}
+
+	NamedThreadsEnum::Type GetDesiredThread()
+	{
+		return DesiredThread;
+	}
+
+	static SubsequentsModeEnum::Type GetSubsequentsMode() { return SubsequentsModeEnum::TrackSubsequents; }
+
+	void DoTask(NamedThreadsEnum::Type CurrentThread, const GraphEventRef& MyCompletionGraphEvent)
+	{
+		Event->Trigger();
+	}
+private:
+	GenericEvent* Event;
+	/** Thread to run on, can be ENamedThreads::AnyThread **/
+	NamedThreadsEnum::Type DesiredThread;
+};
+
+/** Task class for lambda based tasks. **/
+template<typename Signature, SubsequentsModeEnum::Type SubsequentsMode>
+class FunctionGraphTaskImpl
+{
+private:
+	/** Function to run **/
+	std::function<Signature> Function;
+	/** Thread to run the function on **/
+	const ENamedThreads::Type DesiredThread;
+
+public:
+
+	FunctionGraphTaskImpl(std::function<Signature>&& InFunction, NamedThreadsEnum::Type InDesiredThread)
+		: 	Function(MoveTemp(InFunction)),
+		DesiredThread(InDesiredThread)
+	{}
+
+	NamedThreadsEnum::Type GetDesiredThread() const
+	{
+		return DesiredThread;
+	}
+
+	static SubsequentsModeEnum::Type GetSubsequentsMode()
+	{
+		return SubsequentsMode;
+	}
+
+	FORCEINLINE void DoTask(NamedThreadsEnum::Type CurrentThread, const GraphEventRef& MyCompletionGraphEvent)
+	{
+		DoTaskImpl(Function, CurrentThread, MyCompletionGraphEvent);
+	}
+
+private:
+	FORCEINLINE static void DoTaskImpl(std::function<void()>& Function, NamedThreadsEnum::Type CurrentThread,
+		const GraphEventRef& MyCompletionGraphEvent)
+	{
+		Function();
+	}
+
+	FORCEINLINE static void DoTaskImpl(std::function<void(const GraphEventRef&)>& Function,
+		NamedThreadsEnum::Type CurrentThread, const GraphEventRef& MyCompletionGraphEvent)
+	{
+		Function(MyCompletionGraphEvent);
+	}
+
+	FORCEINLINE static void DoTaskImpl(std::function<void(ENamedThreads::Type, const GraphEventRef&)>& Function,
+		NamedThreadsEnum::Type CurrentThread, const GraphEventRef& MyCompletionGraphEvent)
+	{
+		Function(CurrentThread, MyCompletionGraphEvent);
+	}
+};
+
+
+struct FunctionGraphTask
+{
+public:
+	/**
+	 * Create a task and dispatch it when the prerequisites are complete
+	 * Handles for prerequisites for this task, can be NULL if there are no prerequisites
+	 **/
+	static GraphEventRef CreateAndDispatchWhenReady(std::function<void()> InFunction, const GraphEventArray* InPrerequisites = nullptr, NamedThreadsEnum::Type InDesiredThread = NamedThreadsEnum::AnyThread)
+	{
+		return TGraphTask<FunctionGraphTaskImpl<void(), SubsequentsModeEnum::TrackSubsequents>>::CreateTask(InPrerequisites).ConstructAndDispatchWhenReady(std::move(InFunction), InDesiredThread);
+	}
+
+	static GraphEventRef CreateAndDispatchWhenReady(std::function<void(NamedThreadsEnum::Type, const GraphEventRef&)> InFunction, const GraphEventArray* InPrerequisites = nullptr, NamedThreadsEnum::Type InDesiredThread = NamedThreadsEnum::AnyThread)
+	{
+		return TGraphTask<FunctionGraphTaskImpl<void(NamedThreadsEnum::Type, const GraphEventRef&), SubsequentsModeEnum::TrackSubsequents>>::CreateTask(InPrerequisites).ConstructAndDispatchWhenReady(std::move(InFunction), InDesiredThread);
+	}
+
+	/**
+	 * Create a task and dispatch it when the prerequisites are complete
+	 * Handle for a single prerequisite for this task
+	 **/
+	static GraphEventRef CreateAndDispatchWhenReady(std::function<void()> InFunction, const GraphEventRef& InPrerequisite, NamedThreadsEnum::Type InDesiredThread = NamedThreadsEnum::AnyThread)
+	{
+		GraphEventArray Prerequisites;
+		//TODO check if(InPrerequisite.GetReference());
+		Prerequisites.push_back(InPrerequisite);
+		return CreateAndDispatchWhenReady(std::move(InFunction), &Prerequisites, InDesiredThread);
+	}
+
+	static GraphEventRef CreateAndDispatchWhenReady(std::function<void(NamedThreadsEnum::Type, const GraphEventRef&)> InFunction, const GraphEventRef& InPrerequisite, NamedThreadsEnum::Type InDesiredThread = NamedThreadsEnum::AnyThread)
+	{
+		GraphEventArray Prerequisites;
+		//TODO check if (InPrerequisite.GetReference());
+		Prerequisites.push_back(InPrerequisite);
+		return CreateAndDispatchWhenReady(std::move(InFunction), &Prerequisites, InDesiredThread);
+	}
+};

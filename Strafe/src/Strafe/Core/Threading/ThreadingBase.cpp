@@ -6,6 +6,7 @@
 #include "Strafe/Core/Threading/Windows/WindowsPlatformTLS.h"
 #include "Strafe/Core/Threading/ThreadSingletonInitializer.h"
 #include "Strafe/Core/Threading/TlsAutoCleanup.h"
+#include "Strafe/Core/Utils/ScopedEvent.h"
 
 
 
@@ -224,7 +225,33 @@ void ThreadManager::ForEachThread(const std::function<void(unsigned int threadid
 	}
 }
 
-//todo still have alot of stuff
+/*-----------------------------------------------------------------------------
+	ScopedEvent
+-----------------------------------------------------------------------------*/
+
+ScopedEvent::ScopedEvent()
+	: Event(TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().GetRawEvent())
+{ }
+
+bool ScopedEvent::IsReady()
+{
+	if (Event && Event->Wait(1))
+	{
+		TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().ReturnRawEvent(Event);
+		Event = nullptr;
+		return true;
+	}
+	return Event == nullptr;
+}
+
+ScopedEvent::~ScopedEvent()
+{
+	if (Event)
+	{
+		Event->Wait();
+		TLazySingleton<TEventPool<EventMode::AutoReset>>::Get().ReturnRawEvent(Event);
+	}
+}
 
 /*-----------------------------------------------------------------------------
 	EventRef, SharedEventRef
