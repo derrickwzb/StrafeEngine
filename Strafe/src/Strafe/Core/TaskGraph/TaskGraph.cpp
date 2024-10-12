@@ -412,8 +412,7 @@ class TaskThreadAnyThread : public TaskThreadBase
 	//for profiling use
 	virtual uint32 Run() override
 	{
-		//TODO 
-		return 0;
+		return TaskThreadBase::Run();
 	}
 
 	private:
@@ -544,6 +543,84 @@ struct WorkerThread
 	}
 };
 
+
+class FMyWorker : public Runnable
+{
+public:
+
+	// The boolean that acts as the main switch
+// When this is false, inputs and outputs can be safely read from game thread
+	bool bInputReady = false;
+
+
+	// Declare the variables that are the inputs and outputs here.
+	// You can have as many as you want. Remember not to use pointers, this must be
+	// plain old data
+	// For example:
+	int ExampleIntInput = 0;
+	float ExampleFloatOutput = 0.0f;
+	// Constructor, create the thread by calling this
+	FMyWorker()
+	{
+		// Constructs the actual thread object. It will begin execution immediately
+		// If you've passed in any inputs, set them up before calling this.
+		Thread = GenericThread::Create(this, TEXT("Give your thread a good name"), 0U, ThreadPri_Highest);
+	}
+
+	// Destructor
+	virtual ~FMyWorker() override
+	{
+		if (Thread)
+		{
+			// Kill() is a blocking call, it waits for the thread to finish.
+			// Hopefully that doesn't take too long
+			Thread->Kill();
+			delete Thread;
+		}
+	}
+
+
+	// Overriden from FRunnable
+	// Do not call these functions youself, that will happen automatically
+	bool Init() override
+	{
+		std::cout << "My custom thread has been initialized" << std::endl;
+
+		// Return false if you want to abort the thread
+		return true;
+	}// Do your setup here, allocate memory, ect.
+	uint32 Run() override
+	{
+		while (1)
+		{
+			Sleep(5000);
+		}
+		// Peform your processor intensive task here. In this example, a neverending
+		// task is created, which will only end when Stop is called.
+
+
+		return 0;
+	}// Main data processing happens here
+	void Stop() override
+	{
+		// Clean up memory usage here, and make sure the Run() function stops soon
+		// The main thread will be stopped until this finishes!
+
+		// For this example, we just need to terminate the while loop
+		// It will finish in <= 1 sec, due to the Sleep()
+		bRunThread = false;
+	}// Clean up any memory you allocated here
+
+
+private:
+
+	// Thread handle. Control the thread using this, with operators like Kill and Suspend
+	GenericThread* Thread;
+
+	// Used to know when the thread should exit, changed in Stop(), read in Run()
+	bool bRunThread;
+};
+
 //TaskGraphImplementation
 //Implementation of the centralized task graph system
 //these parts of the system have no knowledge of the dependency graph, they exclusively work on tasks
@@ -565,6 +642,7 @@ public:
 	//initializes the data structure, sets the singleton pter and create internal threads
 	TaskGraphImplementation(int32)
 	{
+
 		CreatedHiPriorityThreads = !!NamedThreadsEnum::bHasHighPriorityThreads;
 		CreatedBackgroundPriorityThreads = !!NamedThreadsEnum::bHasBackgroundThreads;
 
@@ -661,6 +739,7 @@ public:
 			}
 			const TCHAR* nametchar = STRTOTCHAR("TaskGraphThread");
 			WorkerThreads[ThreadIndex].RunnableThread = GenericThread::Create(&Thread(ThreadIndex), TEXT("Taskgraph"), StackSize, ThreadPri, Affinity);
+			
 			
 			WorkerThreads[ThreadIndex].bAttached = true;
 		}
@@ -1056,6 +1135,11 @@ private:
 
 BaseGraphTask* TaskThreadAnyThread::FindWork()
 {
+	/*if (TaskGraphImplementationSingleton)
+	{
+		return TaskGraphImplementationSingleton->FindWork(ThreadId);
+	}
+	return nullptr;*/
 	return TaskGraphImplementationSingleton->FindWork(ThreadId);
 }
 

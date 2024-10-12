@@ -222,6 +222,10 @@ namespace strafe
 		}// Do your setup here, allocate memory, ect.
 		uint32 Run() override
 		{
+			while (1)
+			{
+				Sleep(5000);
+			}
 			// Peform your processor intensive task here. In this example, a neverending
 			// task is created, which will only end when Stop is called.
 				
@@ -288,6 +292,39 @@ namespace strafe
 		auto end = std::chrono::high_resolution_clock::now();
 		std::cout << "Total time: " << std::chrono::duration<double>(end - start).count() << " seconds :: FUNCTION ENDS HERE" << std::endl;
 	}
+
+
+	class GenericTask
+	{
+		int	SomeArgument;
+	public:
+		GenericTask(int InSomeArgument) // CAUTION!: Must not use references in the constructor args; use pointers instead if you need by reference
+			: SomeArgument(InSomeArgument)
+		{
+			// Usually the constructor doesn't do anything except save the arguments for use in DoWork or GetDesiredThread.
+		}
+		~GenericTask()
+		{
+			// you will be destroyed immediately after you execute. Might as well do cleanup in DoWork, but you could also use a destructor.
+		}
+
+		static NamedThreadsEnum::Type GetDesiredThread()
+		{
+			return NamedThreadsEnum::BackgroundThreadPriority;
+		}
+		static SubsequentsModeEnum::Type GetSubsequentsMode()
+		{
+			return SubsequentsModeEnum::TrackSubsequents;
+		}
+		void DoTask(NamedThreadsEnum::Type CurrentThread, const GraphEventRef& MyCompletionGraphEvent)
+		{
+			// The arguments are useful for setting up other tasks.
+			// Do work here, probably using SomeArgument.
+			// 
+			//MyCompletionGraphEvent->DontCompleteUntil(TGraphTask<SomeChildTask>::CreateTask(NULL, CurrentThread).ConstructAndDispatchWhenReady());
+			std::cout << "test";
+		}
+	};
 	bool once = false;
 	void Application::Run()
 	{
@@ -317,32 +354,40 @@ namespace strafe
 
 				TaskGraphInterface::Startup(WindowsPlatformMisc::NumberOfWorkerThreadsToSpawn());
 				TaskGraphInterface::Get().AttachToThread(NamedThreadsEnum::GameThread);
-				TaskGraphInterface::Get().WakeNamedThread(NamedThreadsEnum::GameThread);
-				std::cout << "here";
-
+				//FMyWorker* Worker2 = new FMyWorker();
 				once = true;
-			}
-			
-			if (!once)
-			{
-				GraphEventRef event = FunctionGraphTask::CreateAndDispatchWhenReady([]()
+				GraphEventArray event;
+				event.push_back( FunctionGraphTask::CreateAndDispatchWhenReady([]()
 					{
-						std::cout << "fromgraphtask3";
-						/*FunctionGraphTask::CreateAndDispatchWhenReady([]()
-							{
-								std::cout << "fromgraphtask2";
-								
-							}, NULL);*/
+						std::cout << "fromgraphtask2";
 
-					}, NULL);
+					}, NULL, NamedThreadsEnum::BackgroundThreadPriority));
 
-				event->Wait();
+				TGraphTask<GenericTask>::CreateTask(&event, NamedThreadsEnum::BackgroundThreadPriority).ConstructAndDispatchWhenReady(2);
 
-
-				std::cout << "here";
-
-				once = true;
+				TaskGraphInterface::Get().ProcessThreadUntilIdle(NamedThreadsEnum::BackgroundThreadPriority);
+				
 			}
+
+			
+			
+				//TaskGraphInterface::Get().WaitUntilTaskCompletes(FunctionGraphTask::CreateAndDispatchWhenReady([]()
+				//	{
+				//		std::cout << "fromgraphtask3";
+				//		//TaskGraphInterface::Get().requestquit(NamedThreadsEnum::GameThread);
+				//		/*FunctionGraphTask::CreateAndDispatchWhenReady([]()
+				//			{
+				//				std::cout << "fromgraphtask2";
+				//				
+				//			}, NULL);*/
+
+				//	}, NULL));
+
+				
+
+
+				//std::cout << "here";
+
 		}
 	}
 
