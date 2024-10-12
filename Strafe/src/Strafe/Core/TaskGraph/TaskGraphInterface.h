@@ -635,7 +635,7 @@ private:
 
 		if (TTask::GetSubsequentsMode() == SubsequentsModeEnum::TrackSubsequents)
 		{
-			_mm_sfence();
+			//_mm_sfence();
 			Subsequents->DispatchSubsequents(NewTasks, CurrentThread, true);
 		}
 		else

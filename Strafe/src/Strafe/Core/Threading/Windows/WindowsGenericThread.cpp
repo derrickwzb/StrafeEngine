@@ -43,7 +43,7 @@ uint32 WindowsGenericThread::GuardedRun()
 		::SetThreadAffinityMask(::GetCurrentThread(), (DWORD_PTR)m_ThreadAffinityMask);
 	}
 
-	WindowsPlatformProcess::SetThreadName(STRTOTCHAR(m_ThreadName));
+	WindowsPlatformProcess::SetThreadName(m_ThreadName);
 	//might need to do exception handling but see how it goes
 	return ExitCode = Run();
 }
@@ -211,7 +211,7 @@ uint32 WindowsGenericThread::Run()
 
 bool WindowsGenericThread::SetThreadAffinityMask(const ThreadAffinity& affinity)
 {
-    const ProcessorGroupDesc& ProcessorGroups = GetProcessorGroupDesc();
+    const ProcessorGroupDesc& ProcessorGroups = WindowsPlatformMisc::GetProcessorGroupDesc();
     uint32 CpuGroupCount = ProcessorGroups.NumProcessorGroups;
     //todo check that affinity processor group is lesser than cpu group count
 

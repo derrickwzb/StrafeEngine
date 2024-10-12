@@ -22,9 +22,9 @@ namespace strafe
 			Application::Init(config);
 			// Do editor specific initialization here
 			//add the imgui layer
-			auto imGuiLayer = std::make_shared<GuiLayer>(m_PrimaryWindow, m_EntityManager);
+			/*auto imGuiLayer = std::make_shared<GuiLayer>(m_PrimaryWindow, m_EntityManager);
 			imGuiLayer->Init();
-			m_LayerStack->PushLayer(imGuiLayer);
+			m_LayerStack->PushLayer(imGuiLayer);*/
 		}
 	};
 }

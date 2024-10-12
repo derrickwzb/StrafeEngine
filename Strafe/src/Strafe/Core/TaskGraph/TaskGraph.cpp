@@ -8,7 +8,7 @@
 #include "Strafe/Core/Utils/Windows/WindowsPlatformMisc.h"
 #include "Strafe/Core/Utils/ScopedEvent.h"
 #include "Strafe/Core/Utils/ReverseIterate.h"
-
+#define STRTOTCHAR(x)  L"x"
 static int32 GNumWorkerThreadsToIgnore = 0;
 
 namespace NamedThreadsEnum
@@ -218,6 +218,7 @@ class NamedTaskThread : public TaskThreadBase
 			else
 			{
 				Task->Execute(NewTasks, NamedThreadsEnum::Type(ThreadId | (QueueIndex << NamedThreadsEnum::QueueIndexShift)), true);
+				//Queue(QueueIndex).QuitForReturn = true;
 				ProcessedTasks++;
 			}
 		}
@@ -614,7 +615,7 @@ public:
 		const TCHAR* PrevGroupName = nullptr;
 		for (int32 ThreadIndex = LastExternalThread + 1; ThreadIndex < NumThreads; ThreadIndex++)
 		{
-			TCHAR* Name;
+			std::string Name;
 			const TCHAR* GroupName = TEXT("TaskGraphNormal");
 			int32 Priority = ThreadIndexToPriorityIndex(ThreadIndex);
 			// These are below normal threads so that they sleep when the named threads are active
@@ -622,7 +623,7 @@ public:
 			uint64 Affinity = WindowsPlatformAffinity::GetTaskGraphThreadMask();
 			if (Priority == 1)
 			{
-				*Name = (TEXT("TaskGraphThreadHP %d"), ThreadIndex - (LastExternalThread + 1));
+				Name = (TEXT("TaskGraphThreadHP %d"), ThreadIndex - (LastExternalThread + 1));
 				GroupName = TEXT("TaskGraphHigh");
 				ThreadPri = ThreadPri_SlightlyBelowNormal; // we want even hi priority tasks below the normal threads
 
@@ -634,7 +635,7 @@ public:
 			}
 			else if (Priority == 2)
 			{
-				*Name = (TEXT("TaskGraphThreadBP %d"), ThreadIndex - (LastExternalThread + 1));
+				Name = (TEXT("TaskGraphThreadBP %d"), ThreadIndex - (LastExternalThread + 1));
 				GroupName = TEXT("TaskGraphLow");
 				ThreadPri = ThreadPri_Lowest;
 				// If the platform defines FPlatformAffinity::GetTaskGraphBackgroundTaskMask then use it
@@ -645,7 +646,7 @@ public:
 			}
 			else
 			{
-				*Name = (TEXT("TaskGraphThreadNP %d"), ThreadIndex - (LastExternalThread + 1));
+				Name = (TEXT("TaskGraphThreadNP %d"), ThreadIndex - (LastExternalThread + 1));
 				ThreadPri = ThreadPri_BelowNormal; // we want normal tasks below normal threads like the game thread
 			}
 
@@ -658,8 +659,8 @@ public:
 				//group names can be used for profiling
 				PrevGroupName = GroupName;
 			}
-			
-			WorkerThreads[ThreadIndex].RunnableThread = GenericThread::Create(&Thread(ThreadIndex), Name, StackSize, ThreadPri, Affinity);
+			const TCHAR* nametchar = STRTOTCHAR("TaskGraphThread");
+			WorkerThreads[ThreadIndex].RunnableThread = GenericThread::Create(&Thread(ThreadIndex), TEXT("Taskgraph"), StackSize, ThreadPri, Affinity);
 			
 			WorkerThreads[ThreadIndex].bAttached = true;
 		}
@@ -1086,6 +1087,9 @@ static LockFreeClassAllocator_TLSCache<GraphEvent, PLATFORM_CACHE_LINE_SIZE>& Ge
 GraphEventRef GraphEvent::CreateGraphEvent()
 {
 	GraphEvent* Instance = new(GetGraphEventAllocator().Allocate()) GraphEvent{};
+
+	bool test = Instance;
+
 	return Instance;
 }
 

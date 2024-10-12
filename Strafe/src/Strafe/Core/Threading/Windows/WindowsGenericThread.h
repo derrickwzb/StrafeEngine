@@ -10,6 +10,7 @@
 
 
 
+
 class Runnable;
 class WindowsGenericThread : public GenericThread
 {
@@ -118,9 +119,9 @@ class WindowsGenericThread : public GenericThread
 			m_ThreadAffinityMask = InThreadAffinityMask;
 
 			// Create the sync event for the thread to signal when it's initialized
-			ThreadInitSyncEvent = WindowsPlatformProcess::GetSynchEventFromPool(true);
+			ThreadInitSyncEvent = WindowsPlatformProcess::GetSynchEventFromPool(false);
 
-			m_ThreadName = ThreadName ? TCharToStdString(ThreadName) : "UnnamedThread";
+			m_ThreadName = ThreadName ? ThreadName : TEXT("TaskGraphdasda");
 			m_ThreadPriority = InThreadPri;
 
 			//create new thread here

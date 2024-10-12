@@ -56,7 +56,7 @@ Runnable* InRunnable
 	if (NewThread)
 	{
 		//setupcreated thread
-		SetupThread(NewThread, InRunnable, ThreadName, InStackSize, InThreadPri, InThreadAffinityMask, InCreateFlags);
+		SetupThread(NewThread, InRunnable, TEXT("taskgraph"), InStackSize, InThreadPri, InThreadAffinityMask, InCreateFlags);
 		
 	}
 
@@ -201,9 +201,9 @@ void ThreadManager::RemoveThread(GenericThread* Thread)
 //}
 
 
-const std::string& ThreadManager::GetThreadNameInternal(unsigned int ThreadId)
+const TCHAR* ThreadManager::GetThreadNameInternal(unsigned int ThreadId)
 {
-	static std::string NoThreadName;
+	static TCHAR* NoThreadName;
 	ScopeLock ThreadsLock(&m_ThreadListCritical);
 	GenericThread** Thread = &(m_Threads[ThreadId]);
 	if (Thread)

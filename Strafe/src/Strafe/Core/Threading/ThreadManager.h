@@ -38,10 +38,10 @@ public:
 	//void Tick();
 
 	//return the name of a thread given its id
-	inline static const std::string& GetThreadName(unsigned int ThreadId)
+	inline static const TCHAR* GetThreadName(unsigned int ThreadId)
 	{
-		static std::string GameThreadName = "GameThread";
-		static std::string RenderThreadName = "RenderThread";
+		static const TCHAR* GameThreadName = TEXT("GameThread");
+		static const TCHAR* RenderThreadName = TEXT("RenderThread");
 
 		if (ThreadId == GameThreadID)
 		{
@@ -76,6 +76,6 @@ private:
 	// will need to implement forkable threads too
 
 
-	const std::string& GetThreadNameInternal(unsigned int ThreadId);
+	const TCHAR* GetThreadNameInternal(unsigned int ThreadId);
 
 };

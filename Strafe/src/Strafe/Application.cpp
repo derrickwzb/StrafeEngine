@@ -25,6 +25,8 @@
 #include "Strafe/Graphics/Renderer/RenderData.h"
 #include "Strafe/Core/Threading/GenericThread.h"
 #include "Strafe/Core/Threading/Runnable.h"
+#include "Strafe/Core/TaskGraph/TaskGraphInterface.h"
+#include "Strafe/Core/Utils/Windows/WindowsPlatformMisc.h"
 
 strafe::Transform* t1, *t2, *t3, *t4, *t5;
 
@@ -32,84 +34,100 @@ namespace strafe
 {
 	void Application::Init(const ApplicationConfig& config)
 	{
-		UNREFERENCED_PARAMETER(config);
-		Logger::Init();
-		RD_CORE_INFO("spdlog initialized for use.");
 
-		GLFWContext::Init();
+		/*TaskGraphInterface::Startup(WindowsPlatformMisc::NumberOfWorkerThreadsToSpawn());
+		TaskGraphInterface::Get().AttachToThread(NamedThreadsEnum::GameThread);*/
+		//UNREFERENCED_PARAMETER(config);
+		//Logger::Init();
+		//RD_CORE_INFO("spdlog initialized for use.");
 
-		m_PrimaryWindow = std::make_shared<Window>();
-		m_PrimaryWindow->Init();
-		//bind the application callback to the window
-		m_PrimaryWindow->SetEventCallback(RD_BIND_EVENT_FN(Application::OnEvent));
-		//setup opengl context
-		m_Context = std::make_shared<OpenGLContext>();
-		m_Context->Init(m_PrimaryWindow);
-		//setup input handler
-		m_InputHandler = std::make_shared<InputHandler>();
-		m_InputHandler->Init();
-		//create the entity manager
-		m_EntityManager = std::make_shared<EntityManager>();
-		//create the resource manager
-		m_ResourceManager = std::make_shared<ResourceManager>();
-		m_ResourceManager->Init(m_PrimaryWindow);
-		//create the render graph
-		m_RenderGraph = std::make_shared<RenderGraph>();
-		m_RenderGraph->Init(m_PrimaryWindow, m_ResourceManager, m_EntityManager);
-		//create the file manager
-		m_FileManager = std::make_shared<FileManager>();
-		m_FileManager->Init();
-		RD_CORE_INFO("{}", m_FileManager->GetRoot().string());
-		Guid guid = GuidGenerator::GenerateGuid();
-		m_FileManager->QueueRequest(FileIORequest{ guid, "vertexshader.vtx", [](Guid id, const uint8_t* data, uint32_t size)
-		{
-			//remember to null terminate the string since it is loaded in binary
-			RD_CORE_TRACE("size:{} -> {}", size, std::string(reinterpret_cast<const char*>(data), size));
-		}});
+		//GLFWContext::Init();
 
-		//layers stuff
-		m_LayerStack = std::make_shared<LayerStack>();
-		//adding the transform layer
-		m_TransformLayer = std::make_shared<TransformLayer>(m_EntityManager);
-		m_LayerStack->PushLayer(m_TransformLayer);
+		//m_PrimaryWindow = std::make_shared<Window>();
+		//m_PrimaryWindow->Init();
+		////bind the application callback to the window
+		//m_PrimaryWindow->SetEventCallback(RD_BIND_EVENT_FN(Application::OnEvent));
+		////setup opengl context
+		//m_Context = std::make_shared<OpenGLContext>();
+		//m_Context->Init(m_PrimaryWindow);
+		////setup input handler
+		//m_InputHandler = std::make_shared<InputHandler>();
+		//m_InputHandler->Init();
+		////create the entity manager
+		//m_EntityManager = std::make_shared<EntityManager>();
+		////create the resource manager
+		//m_ResourceManager = std::make_shared<ResourceManager>();
+		//m_ResourceManager->Init(m_PrimaryWindow);
+		////create the render graph
+		//m_RenderGraph = std::make_shared<RenderGraph>();
+		//m_RenderGraph->Init(m_PrimaryWindow, m_ResourceManager, m_EntityManager);
+		////create the file manager
+		//m_FileManager = std::make_shared<FileManager>();
+		//m_FileManager->Init();
+		//RD_CORE_INFO("{}", m_FileManager->GetRoot().string());
+		//Guid guid = GuidGenerator::GenerateGuid();
+		//m_FileManager->QueueRequest(FileIORequest{ guid, "vertexshader.vtx", [](Guid id, const uint8_t* data, uint32_t size)
+		//{
+		//	//remember to null terminate the string since it is loaded in binary
+		//	RD_CORE_TRACE("size:{} -> {}", size, std::string(reinterpret_cast<const char*>(data), size));
+		//}});
 
-		//init all layers
-		m_LayerStack->Init();
+		////layers stuff
+		//m_LayerStack = std::make_shared<LayerStack>();
+		////adding the transform layer
+		//m_TransformLayer = std::make_shared<TransformLayer>(m_EntityManager);
+		//m_LayerStack->PushLayer(m_TransformLayer);
 
-		//test the transform layer
-		auto e1 = m_EntityManager->CreateEntity();
-		auto e2 = m_EntityManager->CreateEntity();
-		auto e3 = m_EntityManager->CreateEntity();
-		auto e4 = m_EntityManager->CreateEntity();
-		auto e5 = m_EntityManager->CreateEntity();
-		t1 = m_EntityManager->AddComponent<Transform>(e1);
-		t1->m_LocalPosition = { 0.3f, 0.f, 0.f };
-		m_TransformLayer->SetEntityAsRoot(m_EntityManager->GetGuid(e1));
-		t2 = m_EntityManager->AddComponent<Transform>(e2);
-		t2->m_LocalPosition = { 0.3f, 0.f, 0.f };
-		t2->m_Parent = m_EntityManager->GetGuid(e1);
-		t1->m_Child = m_EntityManager->GetGuid(e2);
-		t3 = m_EntityManager->AddComponent<Transform>(e3);
-		t3->m_LocalPosition = { 0.3f, 0.f, 0.f };
-		t3->m_Parent = m_EntityManager->GetGuid(e2);
-		t2->m_Child = m_EntityManager->GetGuid(e3);
-		t4 = m_EntityManager->AddComponent<Transform>(e4);
-		t4->m_LocalPosition = { 0.f, 0.3f, 0.f };
-		t4->m_Parent = m_EntityManager->GetGuid(e1);
-		t2->m_Sibling = m_EntityManager->GetGuid(e4);
-		t5 = m_EntityManager->AddComponent<Transform>(e5);
-		t5->m_LocalPosition = { 0.f, 0.3f, 0.f };
-		t5->m_Parent = m_EntityManager->GetGuid(e4);
-		t4->m_Child = m_EntityManager->GetGuid(e5);
+		////init all layers
+		//m_LayerStack->Init();
 
-		//add all of this into the render graph data
-		std::vector<RenderData> renderData;
-		renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e1), 0 }});
-		renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e2), 0 }});
-		renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e3), 0 }});
-		renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e4), 0 }});
-		renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e5), 0 }});
-		m_ResourceManager->AddRenderData("test", std::move(renderData));
+		////test the transform layer
+		//auto e1 = m_EntityManager->CreateEntity();
+		//auto e2 = m_EntityManager->CreateEntity();
+		//auto e3 = m_EntityManager->CreateEntity();
+		//auto e4 = m_EntityManager->CreateEntity();
+		//auto e5 = m_EntityManager->CreateEntity();
+		//t1 = m_EntityManager->AddComponent<Transform>(e1);
+		//t1->m_LocalPosition = { 0.3f, 0.f, 0.f };
+		//m_TransformLayer->SetEntityAsRoot(m_EntityManager->GetGuid(e1));
+		//t2 = m_EntityManager->AddComponent<Transform>(e2);
+		//t2->m_LocalPosition = { 0.3f, 0.f, 0.f };
+		//t2->m_Parent = m_EntityManager->GetGuid(e1);
+		//t1->m_Child = m_EntityManager->GetGuid(e2);
+		//t3 = m_EntityManager->AddComponent<Transform>(e3);
+		//t3->m_LocalPosition = { 0.3f, 0.f, 0.f };
+		//t3->m_Parent = m_EntityManager->GetGuid(e2);
+		//t2->m_Child = m_EntityManager->GetGuid(e3);
+		//t4 = m_EntityManager->AddComponent<Transform>(e4);
+		//t4->m_LocalPosition = { 0.f, 0.3f, 0.f };
+		//t4->m_Parent = m_EntityManager->GetGuid(e1);
+		//t2->m_Sibling = m_EntityManager->GetGuid(e4);
+		//t5 = m_EntityManager->AddComponent<Transform>(e5);
+		//t5->m_LocalPosition = { 0.f, 0.3f, 0.f };
+		//t5->m_Parent = m_EntityManager->GetGuid(e4);
+		//t4->m_Child = m_EntityManager->GetGuid(e5);
+
+		////add all of this into the render graph data
+		//std::vector<RenderData> renderData;
+		//renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e1), 0 }});
+		//renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e2), 0 }});
+		//renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e3), 0 }});
+		//renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e4), 0 }});
+		//renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e5), 0 }});
+		//m_ResourceManager->AddRenderData("test", std::move(renderData));
+
+
+		std::cout << "Starting Performance Test" << std::endl;
+
+
+
+
+		
+
+		
+		
+
+		
 	}
 
 	static const signed int WORK_LOAD = 100000000;
@@ -277,24 +295,51 @@ namespace strafe
 
 		while(m_Running)
 		{
-			
-			//input update must be called before window polls for inputs
-			m_InputHandler->Update(m_PrimaryWindow->GetDeltaTime());
-			m_FileManager->Update();
-			m_PrimaryWindow->StartRender();
+			//
+			////input update must be called before window polls for inputs
+			//m_InputHandler->Update(m_PrimaryWindow->GetDeltaTime());
+			//m_FileManager->Update();
+			//m_PrimaryWindow->StartRender();
 
-			for(auto& layer : *m_LayerStack)
-			{
-				layer->Update(static_cast<float>(m_PrimaryWindow->GetDeltaTime()));
-			}
+			//for(auto& layer : *m_LayerStack)
+			//{
+			//	layer->Update(static_cast<float>(m_PrimaryWindow->GetDeltaTime()));
+			//}
 
-			m_RenderGraph->Execute();
+			//m_RenderGraph->Execute();
 
-			m_PrimaryWindow->EndRender();
-
+			//m_PrimaryWindow->EndRender();
+			/*TaskGraphInterface::Startup(WindowsPlatformMisc::NumberOfWorkerThreadsToSpawn());
+			TaskGraphInterface::Get().AttachToThread(NamedThreadsEnum::GameThread);*/
 			if (!once)
 			{
-				TestFunction();
+				
+
+				TaskGraphInterface::Startup(WindowsPlatformMisc::NumberOfWorkerThreadsToSpawn());
+				TaskGraphInterface::Get().AttachToThread(NamedThreadsEnum::GameThread);
+				TaskGraphInterface::Get().WakeNamedThread(NamedThreadsEnum::GameThread);
+				std::cout << "here";
+
+				once = true;
+			}
+			
+			if (!once)
+			{
+				GraphEventRef event = FunctionGraphTask::CreateAndDispatchWhenReady([]()
+					{
+						std::cout << "fromgraphtask3";
+						/*FunctionGraphTask::CreateAndDispatchWhenReady([]()
+							{
+								std::cout << "fromgraphtask2";
+								
+							}, NULL);*/
+
+					}, NULL);
+
+				event->Wait();
+
+
+				std::cout << "here";
 
 				once = true;
 			}

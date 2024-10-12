@@ -66,7 +66,7 @@ public:
 	const unsigned int GetThreadId() const { return m_ThreadId; }
 
 	//get the name of the thread
-	const std::string & getThreadName() const { return m_ThreadName; }
+	const TCHAR* getThreadName() const { return m_ThreadName; }
 
 	//return the thread priority
 	ThreadPriority GetThreadPriority() const { return m_ThreadPriority; }
@@ -103,7 +103,7 @@ protected:
 
 
 	//thread name
-	std::string m_ThreadName;
+	const TCHAR* m_ThreadName;
 	//runnable object to execute on this thread
 	Runnable* m_Runnable;
 

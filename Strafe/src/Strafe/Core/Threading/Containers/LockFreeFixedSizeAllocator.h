@@ -83,15 +83,15 @@ class LockFreeFixedSizeAllocator_TLSCacheBase
 		{
 
 			//this is alot of overhead but sure
-			// Clean up the GlobalFreeListBundles
-			while (!GlobalFreeListBundles.IsEmpty())
-			{
-				void* Bundle = GlobalFreeListBundles.Pop(); // or another method to retrieve a bundle
-				delete[] static_cast<void**>(Bundle); // Assuming the bundles were allocated with new[]
-			}
+			//// Clean up the GlobalFreeListBundles
+			//while (!GlobalFreeListBundles.IsEmpty())
+			//{
+			//	void* Bundle = GlobalFreeListBundles.Pop(); // or another method to retrieve a bundle
+			//	delete[] static_cast<void**>(Bundle); // Assuming the bundles were allocated with new[]
+			//}
 
 			WindowsPlatformTLS::FreeTlsSlot(TlsSlot);
-			TlsSlot = 0;
+			TlsSlot = WindowsPlatformTLS::InvalidTlsSlot;
 		}
 
 		//allocates a memory block of size TSize
@@ -118,7 +118,7 @@ class LockFreeFixedSizeAllocator_TLSCacheBase
 					TLS.PartialBundle = GlobalFreeListBundles.Pop();
 					if (!TLS.PartialBundle)
 					{
-						TLS.PartialBundle = new void* [NUM_PER_BUNDLE];
+						TLS.PartialBundle = (void**)malloc(SIZE_PER_BUNDLE);
 						void** Next = TLS.PartialBundle;
 						for (int32 Index = 0; Index < NUM_PER_BUNDLE - 1; Index++)
 						{
