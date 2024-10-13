@@ -949,6 +949,7 @@ public:
 
 			// named thread process tasks while we wait
 			TGraphTask<ReturnGraphTask>::CreateTask(&Tasks, CurrentThread).ConstructAndDispatchWhenReady(CurrentThread);
+
 			ProcessThreadUntilRequestReturn(CurrentThread);
 		}
 		else

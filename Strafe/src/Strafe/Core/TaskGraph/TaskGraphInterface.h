@@ -397,6 +397,7 @@ public:
 		if (bSucceeded)
 		{
 			//log that it is added
+			std::cout << "SUBSEQUENT ADDED" << std::endl;
 		}
 		return bSucceeded;
 	}
@@ -744,7 +745,7 @@ private:
 
 
 // Returns a graph event that gets completed as soon as any of the given tasks gets completed
-GraphEventRef AnyTaskCompleted(const GraphEventArray& GraphEvents);
+//GraphEventRef AnyTaskCompleted(const GraphEventArray& GraphEvents);
 
 
 //ReturnGraphTask is a task used to return flow control from a named thread back to the original caller of ProcessThreadRequestReturn
@@ -782,6 +783,7 @@ public:
 	void DoTask(NamedThreadsEnum::Type CurrentThread, const GraphEventRef& MyCompletionGraphEvent)
 	{
 		//check if (NamedThreadsEnum::GetThreadIndex(ThreadToReturnFrom) == NamedThreadsEnum::GetThreadIndex(CurrentThread)); // we somehow are executing on the wrong thread.
+		std::cout << "return graph task HERE" << std::endl;
 		TaskGraphInterface::Get().RequestReturn(ThreadToReturnFrom);
 	}
 
@@ -823,6 +825,7 @@ public:
 	 **/
 	void DoTask(NamedThreadsEnum::Type CurrentThread, const GraphEventRef& MyCompletionGraphEvent)
 	{
+		std::cout << "NULLGRAPHTASK HERE" << std::endl;
 	}
 private:
 	/** Thread to run on, can be ENamedThreads::AnyThread **/

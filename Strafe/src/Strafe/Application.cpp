@@ -357,18 +357,36 @@ namespace strafe
 				////FMyWorker* Worker2 = new FMyWorker();
 				//once = true;
 				GraphEventArray event;
-				event.push_back( FunctionGraphTask::CreateAndDispatchWhenReady([]()
-					{
-						std::cout << "fromgraphtask2";
 
-					}, NULL, NamedThreadsEnum::GameThread));
+				
+				//event.push_back( FunctionGraphTask::CreateAndDispatchWhenReady([]()
+				//	{
+				//		std::cout << "fromgraphtask2";
 
-				GraphEventRef task1 = TGraphTask<GenericTask>::CreateTask(NULL, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(32);
+				//	}, NULL, NamedThreadsEnum::BackgroundThreadPriority));
+
+				GraphEventRef task1 = TGraphTask<GenericTask>::CreateTask(NULL, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(123);
 				event.push_back(task1);
-				TGraphTask<GenericTask>::CreateTask(NULL, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788);
+				GraphEventRef task2 = TGraphTask<GenericTask>::CreateTask(NULL, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(123434);
+				event.push_back(task2);
+				
+				GraphEventRef final = TGraphTask<GenericTask>::CreateTask(NULL, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788);
+				event.push_back(final);
+				//TGraphTask<GenericTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788);
+				TGraphTask<NullGraphTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(NamedThreadsEnum::GameThread);
 				//event.push_back(task2);
 				//TGraphTask<NullGraphTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(NamedThreadsEnum::GameThread);
+				//TaskGraphInterface::Get().WaitUntilTaskCompletes(FunctionGraphTask::CreateAndDispatchWhenReady([]()
+				//	{
+				//		std::cout << "fromgraphtask3";
+				//		//TaskGraphInterface::Get().requestquit(NamedThreadsEnum::GameThread);
+				//		/*FunctionGraphTask::CreateAndDispatchWhenReady([]()
+				//			{
+				//				std::cout << "fromgraphtask2";
 
+				//			}, NULL);*/
+
+				//	}, NULL));
 				TaskGraphInterface::Get().ProcessThreadUntilIdle(NamedThreadsEnum::GameThread);
 				once = true;
 				std::cout << "here";
