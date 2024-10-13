@@ -1230,17 +1230,17 @@ void GraphEvent::DispatchSubsequents(std::vector<BaseGraphTask*>& NewTasks, Name
 
 			NamedThreadsEnum::Type LocalThreadToDoGatherOn = NamedThreadsEnum::AnyHiPriThreadHiPriTask;
 
+			
+			//LocalThreadToDoGatherOn = ThreadToDoGatherOn;
+			NamedThreadsEnum::Type CurrentThreadIndex = NamedThreadsEnum::GetThreadIndex(CurrentThreadIfKnown);
+			if (CurrentThreadIndex <= NamedThreadsEnum::ActualRenderingThread)
 			{
-				//LocalThreadToDoGatherOn = ThreadToDoGatherOn;
-				NamedThreadsEnum::Type CurrentThreadIndex = NamedThreadsEnum::GetThreadIndex(CurrentThreadIfKnown);
-				if (CurrentThreadIndex <= NamedThreadsEnum::ActualRenderingThread)
-				{
-					LocalThreadToDoGatherOn = CurrentThreadIndex;
-				}
-
-				TGraphTask<NullGraphTask>::CreateTask(GraphEventRef(this), &TempEventsToWaitFor, CurrentThreadIfKnown).ConstructAndDispatchWhenReady(LocalThreadToDoGatherOn);
-				return;
+				LocalThreadToDoGatherOn = CurrentThreadIndex;
 			}
+
+			TGraphTask<NullGraphTask>::CreateTask(GraphEventRef(this), &TempEventsToWaitFor, CurrentThreadIfKnown).ConstructAndDispatchWhenReady(LocalThreadToDoGatherOn);
+			return;
+			
 		}
 
 		bool bWakeUpWorker = false;

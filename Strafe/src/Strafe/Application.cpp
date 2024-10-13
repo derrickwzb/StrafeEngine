@@ -310,7 +310,7 @@ namespace strafe
 
 		static NamedThreadsEnum::Type GetDesiredThread()
 		{
-			return NamedThreadsEnum::BackgroundThreadPriority;
+			return NamedThreadsEnum::GameThread;
 		}
 		static SubsequentsModeEnum::Type GetSubsequentsMode()
 		{
@@ -322,7 +322,7 @@ namespace strafe
 			// Do work here, probably using SomeArgument.
 			// 
 			//MyCompletionGraphEvent->DontCompleteUntil(TGraphTask<SomeChildTask>::CreateTask(NULL, CurrentThread).ConstructAndDispatchWhenReady());
-			std::cout << "test";
+			std::cout << "test"<<SomeArgument<<std::endl;
 		}
 	};
 	bool once = false;
@@ -354,18 +354,24 @@ namespace strafe
 
 				TaskGraphInterface::Startup(WindowsPlatformMisc::NumberOfWorkerThreadsToSpawn());
 				TaskGraphInterface::Get().AttachToThread(NamedThreadsEnum::GameThread);
-				//FMyWorker* Worker2 = new FMyWorker();
-				once = true;
+				////FMyWorker* Worker2 = new FMyWorker();
+				//once = true;
 				GraphEventArray event;
 				event.push_back( FunctionGraphTask::CreateAndDispatchWhenReady([]()
 					{
 						std::cout << "fromgraphtask2";
 
-					}, NULL, NamedThreadsEnum::BackgroundThreadPriority));
+					}, NULL, NamedThreadsEnum::GameThread));
 
-				TGraphTask<GenericTask>::CreateTask(&event, NamedThreadsEnum::BackgroundThreadPriority).ConstructAndDispatchWhenReady(2);
+				GraphEventRef task1 = TGraphTask<GenericTask>::CreateTask(NULL, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(32);
+				event.push_back(task1);
+				TGraphTask<GenericTask>::CreateTask(NULL, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788);
+				//event.push_back(task2);
+				//TGraphTask<NullGraphTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(NamedThreadsEnum::GameThread);
 
-				TaskGraphInterface::Get().ProcessThreadUntilIdle(NamedThreadsEnum::BackgroundThreadPriority);
+				TaskGraphInterface::Get().ProcessThreadUntilIdle(NamedThreadsEnum::GameThread);
+				once = true;
+				std::cout << "here";
 				
 			}
 
