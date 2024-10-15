@@ -375,7 +375,11 @@ namespace strafe
 				//TaskGraphInterface::Get().WaitUntilTaskCompletes((TGraphTask<GenericTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788)));
 
 				GraphEventRef final = TGraphTask<GenericTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788);
-				final->Wait();
+				GraphEventArray event2;
+				event2.push_back(final);
+
+				GraphEventRef final2 = ( TGraphTask<GenericTask>::CreateTask(&event2, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(12345678));
+				final2->Wait();
 				//event.push_back(final);
 				//TGraphTask<GenericTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788);
 				//TGraphTask<NullGraphTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(NamedThreadsEnum::GameThread);
