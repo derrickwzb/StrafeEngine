@@ -2,6 +2,7 @@
 #pragma warning(disable : 4706)
 
 #include "Strafe/Core/Utils/Windows/WindowsPlatformProcess.h"
+#include "Strafe/Core/Utils/Windows/WindowsPlatformAtomics.h"
 #include <intrin.h>
 #include <vector>
 
@@ -125,7 +126,7 @@ private:
 			checkLockFreePointerList(IsAligned(NewBlock, alignof(T)));
 
 			//might need to check atomic operation
-			if (::_InterlockedCompareExchangePointer((void**)&Pages[BlockIndex], NewBlock, nullptr) != nullptr)
+			if (WindowsPlatformAtomics::cInterlockedCompareExchangePointer((void**)&Pages[BlockIndex], NewBlock, nullptr) != nullptr)
 			{
 				// we lost discard block
 				checkLockFreePointerList(Pages[BlockIndex] && Pages[BlockIndex] != NewBlock);
@@ -211,12 +212,12 @@ struct IndexedPointer
 	FORCEINLINE void AtomicRead(const IndexedPointer& Other)
 	{
 		checkLockFreePointerList(IsAligned(&Ptrs, 8) && IsAligned(&Other.Ptrs, 8));
-		Ptrs = uint64((int64)::_InterlockedCompareExchange64((int64*)((volatile const int64*)&Other.Ptrs), 0, 0));
+		Ptrs = uint64(WindowsPlatformAtomics::AtomicRead((volatile const int64*)&Other.Ptrs));
 	}
 
 	FORCEINLINE bool IPInterlockedCompareExchange(const IndexedPointer& Exchange, const IndexedPointer& Comparand)
 	{
-		return uint64(::_InterlockedCompareExchange64((volatile int64*)&Ptrs, Exchange.Ptrs, Comparand.Ptrs)) == Comparand.Ptrs;
+		return uint64(WindowsPlatformAtomics::cInterlockedCompareExchange((volatile int64*)&Ptrs, Exchange.Ptrs, Comparand.Ptrs)) == Comparand.Ptrs;
 	}
 
 	FORCEINLINE bool operator==(const IndexedPointer& Other) const
@@ -464,7 +465,9 @@ public:
 						Item = LockFreeLinkPolicy::AllocLockFreeLink();
 						LockFreeLinkPolicy::DerefLink(Item)->Payload = InPayload;
 					}
+					std::cout << "return item "<<Item << std::endl;
 					return Item;
+					
 				}
 				return 0;
 			};
@@ -475,6 +478,7 @@ public:
 				// we allocated the link, but it turned out that the list was closed
 				LockFreeLinkPolicy::FreeLockFreeLink(Item);
 			}
+			std::cout << "pushif false" << std::endl;
 			return false;
 		}
 		return true;
@@ -512,7 +516,7 @@ public:
 		while (Links)
 		{
 			TLink* LinksP = LockFreeLinkPolicy::DerefLink(Links);
-			OutArray.emplace_back((T*)LinksP->Payload);
+			OutArray.push_back((T*)LinksP->Payload);
 			TLinkPtr Del = Links;
 			Links = LinksP->SingleNext;
 			LockFreeLinkPolicy::FreeLockFreeLink(Del);
@@ -685,6 +689,7 @@ public:
 	}
 	int32 Push(T* InPayload, uint32 Priority)
 	{
+		std::cout<<"pushing stuff "<<std::endl;
 		checkLockFreePointerList(Priority < NumPriorities);
 		TDoublePtr LocalMasterState;
 		LocalMasterState.AtomicRead(MasterState);
@@ -739,6 +744,7 @@ public:
 						NewMasterState.SetPtr(LocalMasterState.GetPtr());
 						if (MasterState.IPInterlockedCompareExchange(NewMasterState, LocalMasterState))
 						{
+						std::cout<<"popping result"<<std::endl;
 							return Result;
 						}
 						LocalMasterState.AtomicRead(MasterState);
@@ -760,6 +766,7 @@ public:
 				}
 			}
 		}
+		std::cout<<"popping nullptr"<<std::endl;
 		return nullptr;
 	}
 

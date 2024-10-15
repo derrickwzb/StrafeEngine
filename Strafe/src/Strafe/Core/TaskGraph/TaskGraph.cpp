@@ -258,6 +258,7 @@ class NamedTaskThread : public TaskThreadBase
 
 	virtual bool EnqueueFromOtherThread(int32 QueueIndex, BaseGraphTask* Task) override
 	{
+	std::cout<< "Enqueueing from other thread"<<std::endl;
 		//check if task exists and queue(index).slstall restart event exists
 		uint32 PrimaryIndex = NamedThreadsEnum::GetTaskPriority(Task->GetThreadToExecuteOn())? 0:1;
 		int32 ThreadToStart = Queue(QueueIndex).StallQueue.Push(Task, PrimaryIndex);
@@ -777,6 +778,8 @@ public:
 	//function to queue a task, called from basegraphtask
 	virtual void QueueTask(BaseGraphTask* Task, bool bWakeUpWorker, NamedThreadsEnum::Type ThreadToExecuteOn, NamedThreadsEnum::Type InCurrentThreadIfKnown = NamedThreadsEnum::AnyThread) final override
 	{
+		//check(Task);
+		std::cout << "Trying to queue task" << std::endl;
 
 		if (NamedThreadsEnum::GetThreadIndex(ThreadToExecuteOn) == NamedThreadsEnum::AnyThread)
 		{

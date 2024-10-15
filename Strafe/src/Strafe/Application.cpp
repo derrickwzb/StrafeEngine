@@ -30,6 +30,8 @@
 
 strafe::Transform* t1, *t2, *t3, *t4, *t5;
 
+//static GraphEventArray event;
+
 namespace strafe
 {
 	void Application::Init(const ApplicationConfig& config)
@@ -115,7 +117,8 @@ namespace strafe
 		//renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e4), 0 }});
 		//renderData.push_back({.m_DrawMesh{ m_EntityManager->GetGuid(e5), 0 }});
 		//m_ResourceManager->AddRenderData("test", std::move(renderData));
-
+		TaskGraphInterface::Startup(WindowsPlatformMisc::NumberOfWorkerThreadsToSpawn());
+		TaskGraphInterface::Get().AttachToThread(NamedThreadsEnum::GameThread);
 
 		std::cout << "Starting Performance Test" << std::endl;
 
@@ -352,13 +355,12 @@ namespace strafe
 			{
 				
 
-				TaskGraphInterface::Startup(WindowsPlatformMisc::NumberOfWorkerThreadsToSpawn());
-				TaskGraphInterface::Get().AttachToThread(NamedThreadsEnum::GameThread);
+				
 				////FMyWorker* Worker2 = new FMyWorker();
 				//once = true;
-				GraphEventArray event;
+			
 
-				
+				GraphEventArray event;
 				//event.push_back( FunctionGraphTask::CreateAndDispatchWhenReady([]()
 				//	{
 				//		std::cout << "fromgraphtask2";
@@ -370,10 +372,13 @@ namespace strafe
 				GraphEventRef task2 = TGraphTask<GenericTask>::CreateTask(NULL, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(123434);
 				event.push_back(task2);
 				
-				GraphEventRef final = TGraphTask<GenericTask>::CreateTask(NULL, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788);
-				event.push_back(final);
+				//TaskGraphInterface::Get().WaitUntilTaskCompletes((TGraphTask<GenericTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788)));
+
+				GraphEventRef final = TGraphTask<GenericTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788);
+				final->Wait();
+				//event.push_back(final);
 				//TGraphTask<GenericTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788);
-				TGraphTask<NullGraphTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(NamedThreadsEnum::GameThread);
+				//TGraphTask<NullGraphTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(NamedThreadsEnum::GameThread);
 				//event.push_back(task2);
 				//TGraphTask<NullGraphTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(NamedThreadsEnum::GameThread);
 				//TaskGraphInterface::Get().WaitUntilTaskCompletes(FunctionGraphTask::CreateAndDispatchWhenReady([]()
@@ -387,13 +392,14 @@ namespace strafe
 				//			}, NULL);*/
 
 				//	}, NULL));
+				//final->Wait();
 				TaskGraphInterface::Get().ProcessThreadUntilIdle(NamedThreadsEnum::GameThread);
 				once = true;
-				std::cout << "here";
+				
 				
 			}
 
-			
+			std::cout << "here";
 			
 				//TaskGraphInterface::Get().WaitUntilTaskCompletes(FunctionGraphTask::CreateAndDispatchWhenReady([]()
 				//	{

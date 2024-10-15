@@ -686,10 +686,11 @@ private:
 		int32 AlreadyCompletedPrerequisites = 0;
 		if (Prerequisites)
 		{
+			std::cout << "prerequisites are not null" << Prerequisites->size()<<std::endl;
 			for (int32 Index = 0; Index < Prerequisites->size(); Index++)
 			{
 				GraphEvent* Prerequisite = (*Prerequisites)[Index];
-				if (Prerequisite == nullptr || !Prerequisite->AddSubsequent(this))
+				if (Prerequisite == nullptr || Prerequisite->AddSubsequent(this))
 				{
 					AlreadyCompletedPrerequisites++;
 				}
@@ -761,6 +762,7 @@ public:
 		: ThreadToReturnFrom(InThreadToReturnFrom)
 	{
 		//TODO check if (ThreadToReturnFrom != ENamedThreads::AnyThread); // doesn't make any sense to return from any thread
+		std::cout << "return graph task constructed here" << std::endl;
 	}
 
 	/**
@@ -804,6 +806,7 @@ public:
 	NullGraphTask( NamedThreadsEnum::Type InDesiredThread)
 		:DesiredThread(InDesiredThread)
 	{
+		std::cout << "NULLGRAPHTASK CONSTRUCTED HERE" << std::endl;
 	}
 
 	/**
