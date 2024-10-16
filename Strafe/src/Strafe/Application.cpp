@@ -378,8 +378,8 @@ namespace strafe
 				GraphEventArray event2;
 				event2.push_back(final);
 
-				GraphEventRef final2 = ( TGraphTask<GenericTask>::CreateTask(&event2, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(12345678));
-				final2->Wait();
+				TaskGraphInterface::Get().WaitUntilTaskCompletes(TGraphTask<GenericTask>::CreateTask(&event2, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(12345678));
+				
 				//event.push_back(final);
 				//TGraphTask<GenericTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(77788);
 				//TGraphTask<NullGraphTask>::CreateTask(&event, NamedThreadsEnum::GameThread).ConstructAndDispatchWhenReady(NamedThreadsEnum::GameThread);
@@ -427,9 +427,11 @@ namespace strafe
 
 	void Application::Shutdown()
 	{
+		
 		m_PrimaryWindow->Shutdown();
 		GLFWContext::Shutdown();
 		RD_CORE_INFO("ragdoll Engine application shut down successfull");
+		TaskGraphInterface::Get().Shutdown();
 	}
 
 	void Application::OnEvent(Event& event)

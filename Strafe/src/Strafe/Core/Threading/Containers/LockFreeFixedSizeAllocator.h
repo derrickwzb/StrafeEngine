@@ -101,7 +101,7 @@ class LockFreeFixedSizeAllocator_TLSCacheBase
 			//return malloc(TSize);
 			////hide this bundle recycling shit as we find a way to free memory properly
 			//@ UPDATE : TLS is freed but the thing is it may still cause leaks. BUT, this is an intentional leak and not technically a leak during runtime because all allocations are always accounted for.
-			//this is for performance sake as the allocation on every tls awakening is too taxing so we recycle = blazing fast
+			//this is for performance sake as the allocation on every tls awakening is too taxing so we recycle = fast
 			//the bundles will be available for the entire application lifecycle until shutdown where we leak everything COOL ACCEPTABLE
 			//The cost of explicitly freeing each allocated block (especially if the application is allocating and deallocating frequently) may outweigh the benefits.
 			ThreadLocalCache& TLS = GetTLS();
@@ -118,7 +118,12 @@ class LockFreeFixedSizeAllocator_TLSCacheBase
 					TLS.PartialBundle = GlobalFreeListBundles.Pop();
 					if (!TLS.PartialBundle)
 					{
-						TLS.PartialBundle = (void**)malloc(SIZE_PER_BUNDLE);
+						TLS.PartialBundle = (void**)VirtualAlloc(
+							NULL,                        // Let the system choose the starting address
+							SIZE_PER_BUNDLE,             // The size of the memory block
+							MEM_COMMIT | MEM_RESERVE,    // Allocate both reserved and committed memory
+							PAGE_READWRITE               // Read and write access to the memory
+						);
 						void** Next = TLS.PartialBundle;
 						for (int32 Index = 0; Index < NUM_PER_BUNDLE - 1; Index++)
 						{
